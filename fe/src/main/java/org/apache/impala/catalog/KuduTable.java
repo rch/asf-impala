@@ -361,9 +361,13 @@ public class KuduTable extends Table implements FeKuduTable {
       } finally {
         storageMetadataLoadTime_ = ctxStorageLdTime.stop();
       }
-      // Load from HMS
-      loadAllColumnStats(msClient, catalogTimeline);
+      // Load column stats and sync schema to HMS (skip if msClient is null, e.g.
+      // HMS-free mode where Kudu is the authoritative metadata source)
+      if (msClient != null) {
+        loadAllColumnStats(msClient, catalogTimeline);
+      }
       refreshLastUsedTime();
+      if (msClient == null) return; // HMS-free: skip schema sync to HMS
       // Avoid updating HMS if the schema didn't change.
       if (msTable_.equals(msTbl)) return;
 

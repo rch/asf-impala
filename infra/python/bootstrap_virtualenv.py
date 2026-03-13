@@ -147,6 +147,20 @@ def exec_pip_install(venv_dir, args, cc="no-cc-available", env=None):
   current process's command line arguments are inherited.'''
   if not env: env = dict(os.environ)
   env["CC"] = cc
+  # When building Python C extensions with the toolchain GCC, it needs to find
+  # system headers (e.g. sasl/sasl.h from Nix's cyrus-sasl-dev) and libraries.
+  # Use GCC's CPATH/LIBRARY_PATH env vars — these are always honored by GCC
+  # regardless of how the compiler is invoked (including PEP 517 build isolation).
+  devenv_include = os.path.join(os.environ.get("DEVENV_ROOT", ""), ".devenv",
+                                "profile", "include")
+  devenv_lib = os.path.join(os.environ.get("DEVENV_ROOT", ""), ".devenv",
+                            "profile", "lib")
+  if os.path.isdir(devenv_include):
+    cpath = env.get("CPATH", "")
+    env["CPATH"] = "{0}:{1}".format(devenv_include, cpath) if cpath else devenv_include
+    library_path = env.get("LIBRARY_PATH", "")
+    env["LIBRARY_PATH"] = "{0}:{1}".format(devenv_lib, library_path) \
+        if library_path else devenv_lib
   # Since gcc is now built with toolchain binutils which may be newer than the
   # system binutils, we need to include the toolchain binutils on the PATH.
   toolchain_binutils_dir = toolchain_pkg_dir("binutils")
@@ -157,6 +171,21 @@ def exec_pip_install(venv_dir, args, cc="no-cc-available", env=None):
   # that are not in Impala's libstdc++. To avoid this, we add GCC to the PATH,
   # so any direct reference will use our GCC rather than the system GCC.
   toolchain_gcc_dir = toolchain_pkg_dir("gcc")
+  # Ensure the toolchain GCC lib64 dir is FIRST in LD_LIBRARY_PATH.
+  # It contains symlinks to system libssl.so.3/libcrypto.so.3 (OpenSSL 3.0.2)
+  # which the toolchain Python's _ssl.so was compiled against. The Nix devenv
+  # profile also has libssl.so.3 but it's OpenSSL 3.6.1 linked against Nix glibc
+  # 2.42 — the toolchain Python can't use it. By putting our GCC lib64 first,
+  # the dynamic linker finds the compatible system OpenSSL before the Nix one.
+  gcc_lib64_dir = os.path.join(toolchain_gcc_dir, "lib64")
+  ld_library_path = env.get("LD_LIBRARY_PATH", "")
+  # Always prepend (not just check membership) to ensure it comes first
+  if ld_library_path:
+    # Remove any existing occurrence to avoid duplicates, then prepend
+    parts = [p for p in ld_library_path.split(":") if p != gcc_lib64_dir]
+    env["LD_LIBRARY_PATH"] = ":".join([gcc_lib64_dir] + parts)
+  else:
+    env["LD_LIBRARY_PATH"] = gcc_lib64_dir
   gcc_bin_dir = os.path.join(toolchain_gcc_dir, "bin")
   env["PATH"] = "{0}:{1}".format(gcc_bin_dir, env["PATH"])
 
@@ -190,9 +219,15 @@ def exec_pip_install(venv_dir, args, cc="no-cc-available", env=None):
   third_party_pkg_install_cmd.extend(args)
   exec_cmd(third_party_pkg_install_cmd, env=env)
 
-  # Finally, we want to install the packages from our own internal python lib
+  # Finally, we want to install the packages from our own internal python lib.
+  # --no-build-isolation: use the venv's setuptools to build the wheel (avoids
+  # needing to download setuptools into an isolated build env, which requires SSL).
+  # --no-deps: dependencies are already installed from requirements.txt above.
+  # No -e: avoids setuptools 80.x's deprecated 'develop' command which spawns a
+  # nested pip that tries to download build deps from PyPI.
   local_package_install_cmd = impala_pip_base_cmd + \
-      ['-e', os.path.join(os.getenv('IMPALA_HOME'), 'lib', 'python')]
+      ['--no-deps', '--no-build-isolation',
+       os.path.join(os.getenv('IMPALA_HOME'), 'lib', 'python')]
   exec_cmd(local_package_install_cmd)
 
 
@@ -325,6 +360,9 @@ def install_kudu_client_if_possible(venv_dir):
     assert cc is not None
     env = dict(os.environ)
     env["KUDU_HOME"] = fake_kudu_build_dir
+    # Override KUDU_BUILD (may be set by devenv) to point to the fake dir where
+    # we copy the client headers, not the real build dir (which lacks them).
+    env["KUDU_BUILD"] = os.path.join(fake_kudu_build_dir, "build", "latest")
     kudu_client_dir = find_kudu_client_install_dir()
     # Copy the include directory to the fake build directory
     kudu_include_dir = os.path.join(kudu_client_dir, "include")

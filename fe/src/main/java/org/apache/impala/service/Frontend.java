@@ -567,7 +567,8 @@ public class Frontend {
         BackendConfig.INSTANCE);
     queryHookManager_ = QueryEventHookManager.createFromConfig(BackendConfig.INSTANCE);
     TBackendGflags cfg = BackendConfig.INSTANCE.getBackendCfg();
-    if (!isBackendTest && cfg.catalogd_deployed) {
+    if (!isBackendTest && cfg.catalogd_deployed
+        && !Boolean.getBoolean("signals.hms_free_mode")) {
       metaStoreClientPool_ = new MetaStoreClientPool(1, cfg.initial_hms_cnxn_timeout_s);
       if (MetastoreShim.getMajorVersion() > 2) {
         transactionKeepalive_ = new TransactionKeepalive(metaStoreClientPool_);

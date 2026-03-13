@@ -218,4 +218,45 @@ public class ConfigLoaderTest {
     Properties config = configs.get(0);
     assertEquals("VALUE\nWITH\nNEWLINE", config.getProperty("key"));
   }
+
+  @Test
+  public void testKuduConnectorValid() throws Exception {
+    createConfigFile("kudu.properties", "connector.name=kudu\n");
+
+    ConfigLoader loader = new ConfigLoader(tempDir);
+    List<Properties> configs = loader.loadConfigs();
+
+    assertEquals(1, configs.size());
+    assertEquals("kudu", configs.get(0).getProperty("connector.name"));
+  }
+
+  @Test
+  public void testUnsupportedConnectorThrows() throws IOException {
+    createConfigFile("bad.properties", "connector.name=hbase\n");
+
+    ConfigLoader loader = new ConfigLoader(tempDir);
+
+    try {
+      loader.loadConfigs();
+      fail("Expected IllegalStateException for unsupported connector");
+    } catch (IllegalStateException e) {
+      assertTrue(e.getMessage().contains("Unsupported connector.name"));
+      assertTrue(e.getMessage().contains("hbase"));
+    } catch (ImpalaRuntimeException e) {
+      fail("Expected IllegalStateException, not ImpalaRuntimeException");
+    }
+  }
+
+  @Test
+  public void testMixedConnectors() throws Exception {
+    createConfigFile("iceberg.properties",
+        "connector.name=iceberg\niceberg.catalog.type=rest\n");
+    createConfigFile("kudu.properties",
+        "connector.name=kudu\n");
+
+    ConfigLoader loader = new ConfigLoader(tempDir);
+    List<Properties> configs = loader.loadConfigs();
+
+    assertEquals(2, configs.size());
+  }
 }

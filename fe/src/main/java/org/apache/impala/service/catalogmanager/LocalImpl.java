@@ -26,6 +26,7 @@ import org.apache.impala.catalog.FeCatalog;
 import org.apache.impala.catalog.local.BlacklistingMetaProvider;
 import org.apache.impala.catalog.local.CatalogdMetaProvider;
 import org.apache.impala.catalog.local.IcebergMetaProvider;
+import org.apache.impala.catalog.local.KuduMetaProvider;
 import org.apache.impala.catalog.local.LocalCatalog;
 import org.apache.impala.catalog.local.MetaProvider;
 import org.apache.impala.catalog.local.MultiMetaProvider;
@@ -110,14 +111,28 @@ class LocalImpl extends FeCatalogManager {
     ConfigLoader loader = new ConfigLoader(catalogConfigDir);
     List<MetaProvider> list = new ArrayList<>();
     for (Properties properties : loader.loadConfigs()) {
-      try {
-        MetaProvider icebergMetaProvider =
-            new BlacklistingMetaProvider(new IcebergMetaProvider(properties));
-        list.add(icebergMetaProvider);
-      } catch (RESTException e) {
-        LOG.error(String.format(
-            "Unable to instantiate IcebergMetaProvider from the following "
-                + "properties: %s", properties), e);
+      String connectorName = properties.getProperty("connector.name", "iceberg");
+      if ("kudu".equals(connectorName)) {
+        try {
+          MetaProvider kuduMetaProvider =
+              new BlacklistingMetaProvider(new KuduMetaProvider(properties));
+          list.add(kuduMetaProvider);
+          LOG.info("Added KuduMetaProvider from catalog config");
+        } catch (Exception e) {
+          LOG.error(String.format(
+              "Unable to instantiate KuduMetaProvider from the following "
+                  + "properties: %s", properties), e);
+        }
+      } else {
+        try {
+          MetaProvider icebergMetaProvider =
+              new BlacklistingMetaProvider(new IcebergMetaProvider(properties));
+          list.add(icebergMetaProvider);
+        } catch (RESTException e) {
+          LOG.error(String.format(
+              "Unable to instantiate IcebergMetaProvider from the following "
+                  + "properties: %s", properties), e);
+        }
       }
     }
     return list;

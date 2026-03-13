@@ -69,7 +69,81 @@ public class TableLoader {
    * Returns new instance of Table, If there were any errors loading the table metadata
    * an IncompleteTable will be returned that contains details on the error.
    */
+  private static final boolean HMS_FREE_MODE =
+      Boolean.getBoolean("signals.hms_free_mode");
+
   public Table load(Db db, String tblName, long eventId, String reason,
+      EventSequence catalogTimeline) {
+    // HMS-free mode: load Kudu tables directly from Kudu master, skip HMS entirely
+    if (HMS_FREE_MODE) {
+      return loadHmsFree(db, tblName, reason, catalogTimeline);
+    }
+    return loadFromHms(db, tblName, eventId, reason, catalogTimeline);
+  }
+
+  private Table loadHmsFree(Db db, String tblName, String reason,
+      EventSequence catalogTimeline) {
+    Stopwatch sw = Stopwatch.createStarted();
+    String fullTblName = db.getName() + "." + tblName;
+    String annotation = "Loading metadata (HMS-free) for: " + fullTblName;
+    LOG.info(annotation);
+    Table table = null;
+    try (ThreadNameAnnotator tna = new ThreadNameAnnotator(annotation)) {
+      // Construct a minimal HMS Table object with Kudu properties.
+      // The actual schema will be loaded from Kudu master by KuduTable.load().
+      org.apache.hadoop.hive.metastore.api.Table msTbl =
+          new org.apache.hadoop.hive.metastore.api.Table();
+      msTbl.setDbName(db.getName());
+      msTbl.setTableName(tblName);
+      msTbl.setTableType(TableType.MANAGED_TABLE.toString());
+      msTbl.setOwner(System.getProperty("user.name", "impala"));
+
+      // Set Kudu properties
+      String kuduMasters = System.getProperty("signals.kudu.master_addresses",
+          "127.0.0.1:7051");
+      String kuduTableName = "impala::" + db.getName() + "." + tblName;
+      Map<String, String> params = new HashMap<>();
+      params.put(KuduTable.KEY_TABLE_NAME, kuduTableName);
+      params.put(KuduTable.KEY_MASTER_HOSTS, kuduMasters);
+      params.put(KuduTable.KEY_STORAGE_HANDLER, KuduTable.KUDU_STORAGE_HANDLER);
+      msTbl.setParameters(params);
+
+      // Set storage descriptor (minimal, Kudu provides schema)
+      org.apache.hadoop.hive.metastore.api.StorageDescriptor sd =
+          new org.apache.hadoop.hive.metastore.api.StorageDescriptor();
+      sd.setCols(new java.util.ArrayList<>());
+      sd.setInputFormat("");
+      sd.setOutputFormat("");
+      sd.setSerdeInfo(new org.apache.hadoop.hive.metastore.api.SerDeInfo());
+      msTbl.setSd(sd);
+
+      catalogTimeline.markEvent("Constructed HMS-free table metadata");
+
+      table = Table.fromMetastoreTable(db, msTbl);
+      if (table == null) {
+        throw new TableLoadingException(
+            "Unrecognized table type for table: " + fullTblName);
+      }
+      // Load with null msClient — KuduTable.load() will skip HMS-dependent operations
+      table.load(false, null, msTbl, reason, catalogTimeline);
+      table.validate();
+    } catch (TableLoadingException e) {
+      table = IncompleteTable.createFailedMetadataLoadTable(db, tblName, e);
+    } catch (Throwable e) {
+      table = IncompleteTable.createFailedMetadataLoadTable(db, tblName,
+          new TableLoadingException("Failed to load metadata for table: "
+              + fullTblName, e));
+    } finally {
+      if (table != null && table.isWriteLockedByCurrentThread()) {
+        table.releaseWriteLock();
+      }
+    }
+    LOG.info("Loaded metadata (HMS-free) for: " + fullTblName + " (" +
+        sw.elapsed(TimeUnit.MILLISECONDS) + "ms)");
+    return table;
+  }
+
+  private Table loadFromHms(Db db, String tblName, long eventId, String reason,
       EventSequence catalogTimeline) {
     Stopwatch sw = Stopwatch.createStarted();
     String fullTblName = db.getName() + "." + tblName;

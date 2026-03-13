@@ -66,8 +66,19 @@ public class IcebergRESTCatalog implements IcebergCatalog {
       PartitionSpec spec,
       String location,
       Map<String, String> properties) {
-    throw new UnsupportedOperationException(
-        "CREATE TABLE is not implemented for REST catalog");
+    setContextClassLoader();
+    if (spec == null) spec = PartitionSpec.unpartitioned();
+    if (location != null && !location.isEmpty()) {
+      return restCatalog_.buildTable(identifier, schema)
+          .withPartitionSpec(spec)
+          .withLocation(location)
+          .withProperties(properties != null ? properties : Map.of())
+          .create();
+    }
+    return restCatalog_.buildTable(identifier, schema)
+        .withPartitionSpec(spec)
+        .withProperties(properties != null ? properties : Map.of())
+        .create();
   }
 
   public ImmutableList<String> listNamespaces() {
@@ -96,19 +107,22 @@ public class IcebergRESTCatalog implements IcebergCatalog {
 
   @Override
   public boolean dropTable(FeIcebergTable feTable, boolean purge) {
-    throw new UnsupportedOperationException(
-        "DROP TABLE is not implemented for REST catalog");
+    setContextClassLoader();
+    TableIdentifier tableId = IcebergUtil.getIcebergTableIdentifier(feTable);
+    return restCatalog_.dropTable(tableId, purge);
   }
 
   @Override
   public boolean dropTable(String dbName, String tblName, boolean purge) {
-    throw new UnsupportedOperationException(
-        "DROP TABLE is not implemented for REST catalog");
+    setContextClassLoader();
+    TableIdentifier tableId = TableIdentifier.of(Namespace.of(dbName), tblName);
+    return restCatalog_.dropTable(tableId, purge);
   }
 
   @Override
   public void renameTable(FeIcebergTable feTable, TableIdentifier newTableId) {
-    throw new UnsupportedOperationException(
-        "RENAME TABLE is not implemented for REST catalog");
+    setContextClassLoader();
+    TableIdentifier oldTableId = IcebergUtil.getIcebergTableIdentifier(feTable);
+    restCatalog_.renameTable(oldTableId, newTableId);
   }
 }

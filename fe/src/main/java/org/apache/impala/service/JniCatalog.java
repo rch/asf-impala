@@ -163,9 +163,13 @@ public class JniCatalog {
       MetastoreShim.setHiveClientCapabilities();
     }
 
+    // In HMS-free mode, create the pool with 0 initial connections so we don't
+    // try to connect to a non-existent HMS at startup. Clients are created
+    // lazily if any code path still needs HMS access.
+    int poolSize = Boolean.getBoolean("signals.hms_free_mode") ? 0
+        : CatalogServiceCatalog.INITIAL_META_STORE_CLIENT_POOL_SIZE;
     MetaStoreClientPool metaStoreClientPool =
-        new MetaStoreClientPool(CatalogServiceCatalog.INITIAL_META_STORE_CLIENT_POOL_SIZE,
-            cfg.initial_hms_cnxn_timeout_s);
+        new MetaStoreClientPool(poolSize, cfg.initial_hms_cnxn_timeout_s);
     catalog_ = new CatalogServiceCatalog(cfg.load_catalog_in_background,
         cfg.num_metadata_loading_threads, cfg.local_library_path, metaStoreClientPool);
     authzManager_ = authzFactory.newAuthorizationManager(catalog_);

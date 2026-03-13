@@ -57,8 +57,7 @@ public class ConfigLoader {
       String fileName = configFile.getName();
       try {
         Properties props = readPropertiesFile(configFile);
-        checkPropertyValue(fileName, props, "connector.name", "iceberg");
-        checkPropertyValue(fileName, props, "iceberg.catalog.type", "rest");
+        checkConnectorName(fileName, props);
         propertiesList.add(props);
       } catch (IOException e) {
         throw new ImpalaRuntimeException(
@@ -67,6 +66,24 @@ public class ConfigLoader {
       }
     }
     return propertiesList;
+  }
+
+  private void checkConnectorName(String configFile, Properties props) {
+    if (!props.containsKey("connector.name")) {
+      throw new IllegalStateException(String.format(
+          "Expected property connector.name was not specified in config file %s.",
+          configFile));
+    }
+    String connectorName = props.getProperty("connector.name");
+    if ("iceberg".equals(connectorName)) {
+      checkPropertyValue(configFile, props, "iceberg.catalog.type", "rest");
+    } else if ("kudu".equals(connectorName)) {
+      // Kudu connector — no additional required properties beyond connector.name
+    } else {
+      throw new IllegalStateException(String.format(
+          "Unsupported connector.name '%s' in config file %s. " +
+          "Supported values: iceberg, kudu", connectorName, configFile));
+    }
   }
 
   List<File> listFiles(File configDirectory) {

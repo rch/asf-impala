@@ -2441,6 +2441,28 @@ public class CatalogServiceCatalog extends Catalog {
     long startVersion = getCatalogVersion();
     LOG.info("Invalidating all metadata. Version: " + startVersion
         + ", IsCatalogServerRequest: " + isCatalogServerRequest);
+
+    // HMS-free mode: skip all HMS-dependent initialization. DDL operations
+    // go through SignalsDdlExecutor. Just seed the catalog with 'default' db.
+    if (Boolean.getBoolean("signals.hms_free_mode")) {
+      LOG.info("HMS-free mode: skipping HMS catalog reset");
+      versionLock_.writeLock().lock();
+      try {
+        catalogVersion_++;
+        org.apache.hadoop.hive.metastore.api.Database msDb =
+            new org.apache.hadoop.hive.metastore.api.Database(
+                "default", "Default database",
+                "file:///tmp/signals-warehouse", null);
+        Db defaultDb = new Db("default", msDb);
+        defaultDb.setCatalogVersion(catalogVersion_);
+        dbCache_.add(defaultDb);
+        triggeredInitialReset_ = true;
+      } finally {
+        versionLock_.writeLock().unlock();
+      }
+      return startVersion;
+    }
+
     Stopwatch resetTimer = Stopwatch.createStarted();
     Stopwatch unlockedTimer = Stopwatch.createStarted();
     // First update the policy metadata.

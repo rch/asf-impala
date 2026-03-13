@@ -22,3 +22,14 @@
 #
 # E.g. to override IMPALA_HADOOP_VERSION, you could uncomment this line:
 # IMPALA_HADOOP_VERSION=3.0.0
+
+# signals-360: Use Apache component versions (Hadoop 3.4.1, Hive 3.1.3,
+# Iceberg 1.10.1, Thrift 0.11.0, Ranger 2.4.0) instead of CDP builds.
+USE_APACHE_COMPONENTS=true
+USE_APACHE_HIVE_3=true
+
+# Kudu C++ client: use the toolchain's pre-built version (879a8f9e2) for ABI
+# compatibility with the toolchain GCC 10.4.0. The locally-built 1.19.0-SNAPSHOT
+# client is compiled with Nix GCC 15/glibc 2.42 and can't link with toolchain binaries.
+# Kudu Java client: still uses 1.19.0-SNAPSHOT from ~/.m2/ (see pom.xml overrides).
+# IMPALA_KUDU_VERSION=1.19.0-SNAPSHOT  # uncomment when Kudu C++ is rebuilt with toolchain GCC

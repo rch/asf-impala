@@ -425,6 +425,12 @@ public class CatalogOpExecutor {
   private final HiveJavaFunctionFactory hiveJavaFuncFactory_;
   private final ExecutorService icebergExecutorService_;
 
+  // HMS-free mode: when enabled, DDL operations are routed to
+  // SignalsDdlExecutor instead of HMS-based paths.
+  private static final boolean HMS_FREE_MODE =
+      Boolean.getBoolean("signals.hms_free_mode");
+  private final SignalsDdlExecutor signalsDdlExecutor_;
+
   // A singleton monitoring class that keeps track of the catalog operations.
   private final CatalogOperationTracker catalogOpTracker_ =
       CatalogMonitor.INSTANCE.getCatalogOperationTracker();
@@ -445,6 +451,18 @@ public class CatalogOpExecutor {
         Executors.newFixedThreadPool(BackendConfig.INSTANCE.icebergCatalogNumThreads(),
                 new ThreadFactoryBuilder().setNameFormat("IcebergCatalogThread-%d")
                 .build());
+    if (HMS_FREE_MODE) {
+      java.util.Properties kuduProps = new java.util.Properties();
+      kuduProps.setProperty("jdbc.url",
+          System.getProperty("signals.catalog.jdbc_url",
+              "jdbc:postgresql://localhost:5455/signals_catalog"));
+      kuduProps.setProperty("kudu.master_addresses",
+          System.getProperty("signals.kudu.master_addresses", "127.0.0.1:7051"));
+      signalsDdlExecutor_ = new SignalsDdlExecutor(
+          new org.apache.impala.catalog.local.KuduMetaProvider(kuduProps));
+    } else {
+      signalsDdlExecutor_ = null;
+    }
   }
 
   public CatalogServiceCatalog getCatalog() { return catalog_; }
@@ -470,6 +488,80 @@ public class CatalogOpExecutor {
     }
     Optional<TTableName> tTableName = Optional.empty();
     TDdlType ddlType = ddlRequest.ddl_type;
+    // HMS-free mode: route DDL operations to SignalsDdlExecutor and
+    // update catalogd's internal cache so impalad sees the new objects.
+    // Handled outside the main try-catch to avoid catalogOpTracker_ mismatch.
+    if (HMS_FREE_MODE && signalsDdlExecutor_ != null) {
+      EventSequence hmsFreeTimeline = new EventSequence(CATALOG_TIMELINE_NAME);
+      TStatus okStatus = new TStatus(TErrorCode.OK, new ArrayList<>());
+      boolean wantMinimal = ddlRequest.isSetHeader()
+          && ddlRequest.getHeader().isWant_minimal_response();
+      try {
+        if (ddlType == TDdlType.CREATE_DATABASE) {
+          TCreateDbParams dbParams = ddlRequest.getCreate_db_params();
+          String dbName = dbParams.getDb();
+          signalsDdlExecutor_.createDatabase(dbParams);
+          org.apache.hadoop.hive.metastore.api.Database msDb =
+              new org.apache.hadoop.hive.metastore.api.Database(
+                  dbName, dbParams.getComment(),
+                  dbParams.getLocation() != null ? dbParams.getLocation()
+                      : "file:///tmp/signals-warehouse/" + dbName + ".db",
+                  null);
+          Db newDb = catalog_.addDb(dbName, msDb);
+          addDbToCatalogUpdate(newDb, wantMinimal, response.getResult());
+          response.getResult().setStatus(okStatus);
+          addSummary(response, "Database has been created.");
+          return response;
+        } else if (ddlType == TDdlType.DROP_DATABASE) {
+          TDropDbParams dropParams = ddlRequest.getDrop_db_params();
+          signalsDdlExecutor_.dropDatabase(dropParams);
+          Db removedDb = catalog_.removeDb(dropParams.getDb());
+          if (removedDb != null) {
+            removedDb.setCatalogVersion(catalog_.incrementAndGetCatalogVersion());
+            TCatalogObject removedObj = removedDb.toMinimalTCatalogObject();
+            response.getResult().addToRemoved_catalog_objects(removedObj);
+          }
+          response.getResult().setVersion(catalog_.getCatalogVersion());
+          response.getResult().setStatus(okStatus);
+          addSummary(response, "Database has been dropped.");
+          return response;
+        } else if (ddlType == TDdlType.CREATE_TABLE
+            || ddlType == TDdlType.CREATE_TABLE_AS_SELECT) {
+          TCreateTableParams ctParams = ddlRequest.getCreate_table_params();
+          org.apache.hadoop.hive.metastore.api.Table msTbl =
+              createMetaStoreTable(ctParams);
+          signalsDdlExecutor_.createTable(ctParams, msTbl, hmsFreeTimeline);
+          Table newTbl = catalog_.addIncompleteTable(
+              msTbl.getDbName(), msTbl.getTableName(),
+              TImpalaTableType.TABLE, ctParams.getComment());
+          if (newTbl != null) {
+            addTableToCatalogUpdate(newTbl, wantMinimal, response.getResult());
+          }
+          response.getResult().setStatus(okStatus);
+          addSummary(response, "Table has been created.");
+          return response;
+        } else if (ddlType == TDdlType.DROP_TABLE) {
+          TDropTableOrViewParams dropParams =
+              ddlRequest.getDrop_table_or_view_params();
+          signalsDdlExecutor_.dropTable(dropParams, hmsFreeTimeline);
+          Table removedTbl = catalog_.removeTable(
+              dropParams.getTable_name().getDb_name(),
+              dropParams.getTable_name().getTable_name());
+          if (removedTbl != null) {
+            removedTbl.setCatalogVersion(catalog_.incrementAndGetCatalogVersion());
+            response.getResult().addToRemoved_catalog_objects(
+                removedTbl.toMinimalTCatalogObject());
+          }
+          response.getResult().setVersion(catalog_.getCatalogVersion());
+          response.getResult().setStatus(okStatus);
+          addSummary(response, "Table has been dropped.");
+          return response;
+        }
+        // Other DDL types fall through to standard (HMS-based) paths below
+      } catch (Exception e) {
+        throw new ImpalaRuntimeException("HMS-free DDL failed: " + e.getMessage(), e);
+      }
+    }
     try {
       boolean syncDdl = ddlRequest.getQuery_options().isSync_ddl();
       String debugAction = ddlRequest.getQuery_options().getDebug_action();
