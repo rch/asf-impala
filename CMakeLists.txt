@@ -403,9 +403,14 @@ IMPALA_ADD_THIRDPARTY_LIB(breakpad_client ${BREAKPAD_INCLUDE_DIR} ${BREAKPAD_STA
   "")
 
 # Be careful with Kerberos: we do not statically link against it as it is a security
-# dependency.
+# dependency. Register both krb5 and gssapi_krb5 as imported targets with *full paths*
+# so Kudu subtrees that list bare "gssapi_krb5" resolve under Nix/devenv (gold has no
+# -L for bare -l from rpath alone).
 find_package(Kerberos REQUIRED)
 IMPALA_ADD_THIRDPARTY_LIB(krb5 ${KERBEROS_INCLUDE_DIR} "" ${KERBEROS_LIBRARY})
+IMPALA_ADD_THIRDPARTY_LIB(gssapi_krb5 "" "" ${KERBEROS_GSSAPI_LIBRARY})
+message(STATUS "Kerberos: ${KERBEROS_LIBRARY}")
+message(STATUS "GSSAPI:   ${KERBEROS_GSSAPI_LIBRARY}")
 
 # We require certain binaries from the kerberos project for our automated kerberos
 # testing.
