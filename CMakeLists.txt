@@ -442,14 +442,20 @@ IMPALA_ADD_THIRDPARTY_LIB(arrow ${ARROW_INCLUDE_DIR} ${ARROW_STATIC_LIB} "")
 
 # System dependencies
 if (NOT APPLE)
-  find_library(RT_LIB_PATH rt)
+  # Explicit multiarch paths: Nix/devenv CMAKE_LIBRARY_PATH may omit /usr/lib
+  # (and gold does not use LD_LIBRARY_PATH as -L).
+  find_library(RT_LIB_PATH rt
+    PATHS /usr/lib/x86_64-linux-gnu /lib/x86_64-linux-gnu /usr/lib64 /usr/lib /lib64 /lib
+    PATH_SUFFIXES x86_64-linux-gnu)
   if(NOT RT_LIB_PATH)
     message(FATAL_ERROR "Could not find librt on the system path")
   endif()
   ADD_THIRDPARTY_LIB(rt
     SHARED_LIB "${RT_LIB_PATH}")
 
-  find_library(DL_LIB_PATH dl)
+  find_library(DL_LIB_PATH dl
+    PATHS /usr/lib/x86_64-linux-gnu /lib/x86_64-linux-gnu /usr/lib64 /usr/lib /lib64 /lib
+    PATH_SUFFIXES x86_64-linux-gnu)
   if(NOT DL_LIB_PATH)
     message(FATAL_ERROR "Could not find libdl on the system path")
   endif()
