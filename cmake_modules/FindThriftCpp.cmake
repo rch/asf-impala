@@ -31,17 +31,27 @@
 if (NOT THRIFT_CPP_FIND_QUIETLY)
   message(STATUS "THRIFT_CPP_HOME: $ENV{THRIFT_CPP_HOME}")
 endif()
-find_path(THRIFT_CPP_INCLUDE_DIR thrift/Thrift.h HINTS
-  ${THRIFT_CPP_ROOT}/include
-  $ENV{THRIFT_CPP_HOME}/include/
-  /usr/local/include/
-  /opt/local/include/
+# When THRIFT_CPP_HOME is set (Impala toolchain / devenv), do not search
+# CMAKE_INCLUDE_PATH / system / Nix store — those can resolve a mismatched thrift.
+set(_THRIFT_CPP_NO_DEFAULT)
+if (DEFINED ENV{THRIFT_CPP_HOME} AND NOT "$ENV{THRIFT_CPP_HOME}" STREQUAL "")
+  set(_THRIFT_CPP_NO_DEFAULT NO_DEFAULT_PATH)
+endif()
+find_path(THRIFT_CPP_INCLUDE_DIR thrift/Thrift.h
+  HINTS
+    ${THRIFT_CPP_ROOT}/include
+    $ENV{THRIFT_CPP_HOME}/include/
+    /usr/local/include/
+    /opt/local/include/
+  ${_THRIFT_CPP_NO_DEFAULT}
 )
 
-find_path(THRIFT_CPP_CONTRIB_DIR share/fb303/if/fb303.thrift HINTS
-  ${THRIFT_CPP_ROOT}/include
-  $ENV{THRIFT_CPP_HOME}
-  /usr/local/
+find_path(THRIFT_CPP_CONTRIB_DIR share/fb303/if/fb303.thrift
+  HINTS
+    ${THRIFT_CPP_ROOT}/include
+    $ENV{THRIFT_CPP_HOME}
+    /usr/local/
+  ${_THRIFT_CPP_NO_DEFAULT}
 )
 
 set(THRIFT_CPP_LIB_PATHS
@@ -50,10 +60,16 @@ set(THRIFT_CPP_LIB_PATHS
   /usr/local/lib
   /opt/local/lib)
 
-find_path(THRIFT_CPP_STATIC_LIB_PATH libthrift.a PATHS ${THRIFT_CPP_LIB_PATHS})
+find_path(THRIFT_CPP_STATIC_LIB_PATH libthrift.a
+  PATHS ${THRIFT_CPP_LIB_PATHS}
+  ${_THRIFT_CPP_NO_DEFAULT}
+)
 
 # prefer the thrift version supplied in THRIFT_CPP_HOME
-find_library(THRIFT_CPP_LIB NAMES thrift HINTS ${THRIFT_CPP_LIB_PATHS})
+find_library(THRIFT_CPP_LIB NAMES thrift
+  HINTS ${THRIFT_CPP_LIB_PATHS}
+  ${_THRIFT_CPP_NO_DEFAULT}
+)
 
 find_program(THRIFT_CPP_COMPILER thrift
   ${THRIFT_CPP_ROOT}/bin
