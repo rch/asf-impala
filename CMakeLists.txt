@@ -210,9 +210,36 @@ include_directories(SYSTEM ${Boost_INCLUDE_DIRS})
 message(STATUS "Boost include dir: " ${Boost_INCLUDE_DIRS})
 message(STATUS "Boost libraries: ${Boost_LIBRARIES}")
 
-# Use OpenSSL from the system, because that is the closest match to the version that this
-# build will use when it is deployed.
+# OpenSSL: always dynamic. Under devenv/Nix, pin one store via SIG_SSL_LIB/SIG_SSL_INC
+# so jwt-cpp headers match libcrypto (never Nix includes + /lib/x86_64-linux-gnu crypto).
+if (DEFINED ENV{SIG_SSL_LIB} AND NOT "$ENV{SIG_SSL_LIB}" STREQUAL "")
+  if (EXISTS "$ENV{SIG_SSL_LIB}/libssl.so" AND EXISTS "$ENV{SIG_SSL_LIB}/libcrypto.so")
+    set(OPENSSL_SSL_LIBRARY "$ENV{SIG_SSL_LIB}/libssl.so" CACHE FILEPATH "OpenSSL ssl" FORCE)
+    set(OPENSSL_CRYPTO_LIBRARY "$ENV{SIG_SSL_LIB}/libcrypto.so" CACHE FILEPATH "OpenSSL crypto" FORCE)
+  else()
+    find_library(OPENSSL_SSL_LIBRARY NAMES ssl PATHS "$ENV{SIG_SSL_LIB}" NO_DEFAULT_PATH)
+    find_library(OPENSSL_CRYPTO_LIBRARY NAMES crypto PATHS "$ENV{SIG_SSL_LIB}" NO_DEFAULT_PATH)
+  endif()
+  if (DEFINED ENV{SIG_SSL_INC} AND NOT "$ENV{SIG_SSL_INC}" STREQUAL "")
+    set(OPENSSL_INCLUDE_DIR "$ENV{SIG_SSL_INC}" CACHE PATH "OpenSSL include" FORCE)
+  endif()
+  # Still run FindOpenSSL so OPENSSL_VERSION is set (kudu security checks it).
+  set(OPENSSL_USE_STATIC_LIBS FALSE)
+endif()
+if (DEFINED ENV{OPENSSL_ROOT_DIR} AND NOT "$ENV{OPENSSL_ROOT_DIR}" STREQUAL "")
+  set(OPENSSL_ROOT_DIR "$ENV{OPENSSL_ROOT_DIR}")
+endif()
 find_package(OpenSSL 1.1.1 REQUIRED)
+message(STATUS "OpenSSL ${OPENSSL_VERSION}")
+message(STATUS "OpenSSL include: ${OPENSSL_INCLUDE_DIR}")
+message(STATUS "OpenSSL ssl:     ${OPENSSL_SSL_LIBRARY}")
+message(STATUS "OpenSSL crypto:  ${OPENSSL_CRYPTO_LIBRARY}")
+# Guard against multiarch mix after find_package
+if (DEFINED ENV{SIG_SSL_LIB} AND OPENSSL_CRYPTO_LIBRARY MATCHES "/lib/x86_64-linux-gnu/")
+  message(FATAL_ERROR
+    "OpenSSL crypto resolved to system multiarch (${OPENSSL_CRYPTO_LIBRARY}) while "
+    "SIG_SSL_LIB=$ENV{SIG_SSL_LIB}. Headers/libs must be one OpenSSL build.")
+endif()
 
 # OpenSSL, being a security dependency, is always dynamically linked.
 IMPALA_ADD_THIRDPARTY_LIB(openssl_ssl ${OPENSSL_INCLUDE_DIR} "" ${OPENSSL_SSL_LIBRARY})
