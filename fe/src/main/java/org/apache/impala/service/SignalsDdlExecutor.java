@@ -22,10 +22,13 @@ import java.sql.SQLException;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.impala.catalog.KuduTable;
 import org.apache.impala.catalog.IcebergTable;
+import org.apache.impala.compat.MetastoreShim;
 import org.apache.impala.util.EventSequence;
 import org.apache.impala.catalog.local.KuduMetaProvider;
 import org.apache.impala.common.ImpalaException;
 import org.apache.impala.common.ImpalaRuntimeException;
+
+import static org.apache.impala.analysis.Analyzer.ACCESSTYPE_READWRITE;
 import org.apache.impala.thrift.TCreateDbParams;
 import org.apache.impala.thrift.TCreateTableParams;
 import org.apache.impala.thrift.TDdlExecResponse;
@@ -107,6 +110,10 @@ public class SignalsDdlExecutor {
     String tableName = msTbl.getTableName();
 
     if (KuduTable.isKuduTable(msTbl)) {
+      // Ensure Hive-3+ access type is RW before/after physical create so analysis
+      // of subsequent SELECT/INSERT does not fail with "access type is: NONE".
+      MetastoreShim.setTableAccessType(msTbl, ACCESSTYPE_READWRITE);
+
       // Create the table in Kudu via KuduCatalogOpExecutor
       KuduCatalogOpExecutor.createSynchronizedTable(catalogTimeline, msTbl, params);
       LOG.info("Created Kudu table '{}.{}'", dbName, tableName);

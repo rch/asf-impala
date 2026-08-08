@@ -42,6 +42,7 @@ import com.google.common.base.Stopwatch;
 import org.apache.impala.catalog.MetaStoreClientPool.MetaStoreClient;
 import org.apache.impala.util.ThreadNameAnnotator;
 
+import static org.apache.impala.analysis.Analyzer.ACCESSTYPE_READWRITE;
 import static org.apache.impala.service.CatalogOpExecutor.FETCHED_HMS_EVENT_BATCH;
 import static org.apache.impala.service.CatalogOpExecutor.FETCHED_HMS_TABLE;
 
@@ -116,6 +117,11 @@ public class TableLoader {
       sd.setOutputFormat("");
       sd.setSerdeInfo(new org.apache.hadoop.hive.metastore.api.SerDeInfo());
       msTbl.setSd(sd);
+
+      // Hive-3+ Analyzer.ensureTableSupported() requires a non-NONE access type
+      // (READ | WRITE | READWRITE). Default thrift field is 0 → reported as NONE.
+      // CatalogOpExecutor.setDefaultTableCapabilities() does the same for HMS creates.
+      MetastoreShim.setTableAccessType(msTbl, ACCESSTYPE_READWRITE);
 
       catalogTimeline.markEvent("Constructed HMS-free table metadata");
 

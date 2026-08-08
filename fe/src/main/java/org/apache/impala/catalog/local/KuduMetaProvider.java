@@ -56,6 +56,8 @@ import org.apache.impala.catalog.HdfsStorageDescriptor;
 import org.apache.impala.catalog.KuduTable;
 import org.apache.impala.catalog.SqlConstraints;
 import org.apache.impala.catalog.VirtualColumn;
+import org.apache.impala.compat.MetastoreShim;
+import static org.apache.impala.analysis.Analyzer.ACCESSTYPE_READWRITE;
 import org.apache.impala.catalog.local.LocalIcebergTable.TableParams;
 import org.apache.impala.common.Pair;
 import org.apache.impala.thrift.TBriefTableMeta;
@@ -236,6 +238,9 @@ public class KuduMetaProvider implements MetaProvider {
 
         msTable.setPartitionKeys(Collections.emptyList());
 
+        // Hive-3+ Analyzer.ensureTableSupported() requires non-NONE access type.
+        MetastoreShim.setTableAccessType(msTable, ACCESSTYPE_READWRITE);
+
         long loadingTime = System.currentTimeMillis();
         TableMetaRef ref = new KuduTableMetaRefImpl(dbName, tableName, msTable,
             loadingTime);
@@ -381,7 +386,9 @@ public class KuduMetaProvider implements MetaProvider {
     try (Connection conn = getConnection();
          PreparedStatement ps = conn.prepareStatement(
              "INSERT INTO catalog_tables (db_name, table_name, table_type, parameters) " +
-             "VALUES (?, ?, 'KUDU', ?::jsonb)")) {
+             "VALUES (?, ?, 'KUDU', ?::jsonb) " +
+             "ON CONFLICT (db_name, table_name) DO UPDATE SET " +
+             "table_type = EXCLUDED.table_type, parameters = EXCLUDED.parameters")) {
       ps.setString(1, dbName);
       ps.setString(2, tableName);
       String params = String.format(

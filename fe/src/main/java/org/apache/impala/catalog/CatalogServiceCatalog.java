@@ -33,6 +33,11 @@ import static org.apache.impala.thrift.TCatalogObjectType.TABLE;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -2431,6 +2436,99 @@ public class CatalogServiceCatalog extends Catalog {
   }
 
   /**
+   * HMS-free startup: populate dbCache_ from the PostgreSQL catalog registry so
+   * tables registered before a catalogd restart appear in SHOW TABLES and load
+   * on demand via {@link TableLoader#loadHmsFree}. Caller must hold versionLock_
+   * write lock.
+   */
+  private void loadHmsFreeCatalogFromRegistry() {
+    catalogVersion_++;
+    String jdbcUrl = System.getProperty("signals.catalog.jdbc_url",
+        "jdbc:postgresql://localhost:5455/signals_catalog");
+    int numDbs = 0;
+    int numTables = 0;
+    try (Connection conn = DriverManager.getConnection(jdbcUrl)) {
+      // Databases (always ensure 'default' exists even if registry is empty)
+      Map<String, Db> dbs = new HashMap<>();
+      try (PreparedStatement ps = conn.prepareStatement(
+              "SELECT name, description, location, owner FROM catalog_databases "
+                  + "ORDER BY name");
+           ResultSet rs = ps.executeQuery()) {
+        while (rs.next()) {
+          String name = rs.getString("name");
+          String desc = rs.getString("description");
+          String loc = rs.getString("location");
+          if (loc == null || loc.isEmpty()) {
+            loc = "file:///tmp/signals-warehouse";
+          }
+          org.apache.hadoop.hive.metastore.api.Database msDb =
+              new org.apache.hadoop.hive.metastore.api.Database(
+                  name, desc != null ? desc : "", loc, null);
+          String owner = rs.getString("owner");
+          if (owner != null) msDb.setOwnerName(owner);
+          Db db = new Db(name, msDb);
+          db.setCatalogVersion(incrementAndGetCatalogVersion());
+          dbs.put(name, db);
+        }
+      }
+      if (!dbs.containsKey("default")) {
+        org.apache.hadoop.hive.metastore.api.Database msDb =
+            new org.apache.hadoop.hive.metastore.api.Database(
+                "default", "Default database",
+                "file:///tmp/signals-warehouse", null);
+        Db defaultDb = new Db("default", msDb);
+        defaultDb.setCatalogVersion(incrementAndGetCatalogVersion());
+        dbs.put("default", defaultDb);
+      }
+
+      // Kudu tables as IncompleteTable placeholders (schema loaded from Kudu on demand)
+      try (PreparedStatement ps = conn.prepareStatement(
+              "SELECT db_name, table_name FROM catalog_tables "
+                  + "WHERE table_type = 'KUDU' ORDER BY db_name, table_name");
+           ResultSet rs = ps.executeQuery()) {
+        while (rs.next()) {
+          String dbName = rs.getString("db_name");
+          String tableName = rs.getString("table_name");
+          if (tableName != null) tableName = tableName.toLowerCase();
+          Db db = dbs.get(dbName);
+          if (db == null) {
+            LOG.warn("HMS-free: table {}.{} has no catalog_databases row; skipping",
+                dbName, tableName);
+            continue;
+          }
+          if (isBlacklistedTable(dbName, tableName)) {
+            LOG.info("HMS-free: skip blacklisted table: {}.{}", dbName, tableName);
+            continue;
+          }
+          Table incompleteTbl = IncompleteTable.createUninitializedTable(
+              db, tableName, TImpalaTableType.TABLE, /*comment*/ null, /*eventId*/ -1L);
+          incompleteTbl.setCatalogVersion(incrementAndGetCatalogVersion());
+          db.addTable(incompleteTbl);
+          ++numTables;
+        }
+      }
+
+      for (Db db : dbs.values()) {
+        dbCache_.add(db);
+        ++numDbs;
+      }
+      LOG.info("HMS-free: loaded {} database(s), {} Kudu table name(s) from {}",
+          numDbs, numTables, jdbcUrl);
+    } catch (SQLException e) {
+      LOG.warn("HMS-free: failed to load catalog registry ({}): {}; "
+          + "seeding empty default database only", jdbcUrl, e.getMessage());
+      catalogVersion_++;
+      org.apache.hadoop.hive.metastore.api.Database msDb =
+          new org.apache.hadoop.hive.metastore.api.Database(
+              "default", "Default database",
+              "file:///tmp/signals-warehouse", null);
+      Db defaultDb = new Db("default", msDb);
+      defaultDb.setCatalogVersion(catalogVersion_);
+      dbCache_.add(defaultDb);
+    }
+  }
+
+  /**
    * Resets this catalog instance by clearing all cached table and database metadata.
    * Returns the current catalog version before reset has taken any effect. The
    * requesting impalad will use that version to determine when the
@@ -2443,19 +2541,14 @@ public class CatalogServiceCatalog extends Catalog {
         + ", IsCatalogServerRequest: " + isCatalogServerRequest);
 
     // HMS-free mode: skip all HMS-dependent initialization. DDL operations
-    // go through SignalsDdlExecutor. Just seed the catalog with 'default' db.
+    // go through SignalsDdlExecutor. Seed 'default' (and any other registry DBs)
+    // and IncompleteTable placeholders for registered Kudu tables so they survive
+    // catalogd restarts and load on demand via TableLoader.loadHmsFree().
     if (Boolean.getBoolean("signals.hms_free_mode")) {
-      LOG.info("HMS-free mode: skipping HMS catalog reset");
+      LOG.info("HMS-free mode: skipping HMS catalog reset; loading from catalog registry");
       versionLock_.writeLock().lock();
       try {
-        catalogVersion_++;
-        org.apache.hadoop.hive.metastore.api.Database msDb =
-            new org.apache.hadoop.hive.metastore.api.Database(
-                "default", "Default database",
-                "file:///tmp/signals-warehouse", null);
-        Db defaultDb = new Db("default", msDb);
-        defaultDb.setCatalogVersion(catalogVersion_);
-        dbCache_.add(defaultDb);
+        loadHmsFreeCatalogFromRegistry();
         triggeredInitialReset_ = true;
       } finally {
         versionLock_.writeLock().unlock();
