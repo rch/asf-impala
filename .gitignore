@@ -45,6 +45,9 @@ _CPack_Packages
 install_manifest.txt
 package/build/
 
+# Python packaging build tree (setuptools/bdist under lib/python)
+lib/python/build/
+
 # Build timestamp files
 .*timestamp
 
