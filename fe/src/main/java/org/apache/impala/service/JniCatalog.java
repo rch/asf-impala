@@ -609,6 +609,13 @@ public class JniCatalog {
   public byte[] getNullPartitionName() throws ImpalaException, TException {
     return execAndSerialize("getNullPartitionName", "Getting null partition name", () -> {
       TGetNullPartitionNameResponse response = new TGetNullPartitionNameResponse();
+      if (Boolean.getBoolean("signals.hms_free_mode")) {
+        // No HMS in this lab. Hive's default sentinel is enough for Iceberg
+        // identity partitions that never encode a null key.
+        response.setPartition_value(MetaStoreUtil.DEFAULT_NULL_PARTITION_KEY_VALUE);
+        response.setStatus(new TStatus(TErrorCode.OK, Lists.newArrayList()));
+        return response;
+      }
       try (MetaStoreClient msClient = catalog_.getMetaStoreClient()) {
         response.setPartition_value(
             MetaStoreUtil.getNullPartitionKeyValue(msClient.getHiveClient()));

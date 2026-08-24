@@ -5,6 +5,7 @@
 #include "common/status.h"
 #include "exec/hdfs-scan-node-base.h"
 #include "exec/hdfs-scan-node.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime-state.h"
 #include "runtime/tuple-row.h"
 #include "runtime/tuple.h"
@@ -74,10 +75,7 @@ Status HdfsHdf5Scanner::GetNextInternal(RowBatch* row_batch) {
       state_, &tuple_buffer_size, &tuple_buffer));
   Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buffer);
   tuple->Init(tuple_buffer_size);
-  while (!scan_node_->ReachedLimit() && !row_batch->AtCapacity()) {
-    int row_idx = row_batch->AddRow();
-    TupleRow* tuple_row = row_batch->GetRow(row_idx);
-    tuple_row->SetTuple(0, tuple);
+  while (!scan_node_->ReachedLimitShared() && !row_batch->AtCapacity()) {
     jobjectArray jrow =
         static_cast<jobjectArray>(env->CallObjectMethod(jscanner_, get_next_));
     RETURN_ERROR_IF_EXC(env);
@@ -85,17 +83,26 @@ Status HdfsHdf5Scanner::GetNextInternal(RowBatch* row_batch) {
       eos_ = true;
       return Status::OK();
     }
+    int row_idx = row_batch->AddRow();
+    TupleRow* tuple_row = row_batch->GetRow(row_idx);
+    tuple_row->SetTuple(0, tuple);
     const int n = env->GetArrayLength(jrow);
     const auto& slots = tuple_desc->slots();
     jclass number_cl = env->FindClass("java/lang/Number");
-    for (int i = 0; i < n && i < static_cast<int>(slots.size()); ++i) {
-      jobject cell = env->GetObjectArrayElement(jrow, i);
-      if (cell == nullptr) {
-        tuple->SetNull(slots[i]->null_indicator_offset());
+    for (const SlotDescriptor* sd : slots) {
+      if (sd->IsVirtual()) continue;
+      const int idx = sd->col_pos();
+      if (idx < 0 || idx >= n) {
+        tuple->SetNull(sd->null_indicator_offset());
         continue;
       }
-      void* slot = tuple->GetSlot(slots[i]->tuple_offset());
-      const PrimitiveType ptype = slots[i]->type().type;
+      jobject cell = env->GetObjectArrayElement(jrow, idx);
+      if (cell == nullptr) {
+        tuple->SetNull(sd->null_indicator_offset());
+        continue;
+      }
+      void* slot = tuple->GetSlot(sd->tuple_offset());
+      const PrimitiveType ptype = sd->type().type;
       if (env->IsInstanceOf(cell, number_cl)) {
         switch (ptype) {
           case TYPE_TINYINT:

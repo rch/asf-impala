@@ -83,6 +83,8 @@ public class FileSystemUtil {
   public static final String SCHEME_FILE = "file";
   public static final String SCHEME_HDFS = "hdfs";
   public static final String SCHEME_S3A = "s3a";
+  // Polarisfork / Iceberg REST locations are often s3:// even when Hadoop uses S3A.
+  public static final String SCHEME_S3 = "s3";
   public static final String SCHEME_O3FS = "o3fs";
   public static final String SCHEME_OFS = "ofs";
   public static final String SCHEME_ALLUXIO = "alluxio";
@@ -119,6 +121,7 @@ public class FileSystemUtil {
           .add(SCHEME_FILE)
           .add(SCHEME_HDFS)
           .add(SCHEME_S3A)
+          .add(SCHEME_S3)
           .add(SCHEME_O3FS)
           .add(SCHEME_OFS)
           .add(SCHEME_GCS)
@@ -601,7 +604,7 @@ public class FileSystemUtil {
    * Returns true iff the path is on a S3AFileSystem.
    */
   public static boolean isS3AFileSystem(Path path) {
-    return hasScheme(path, SCHEME_S3A);
+    return hasScheme(path, SCHEME_S3A) || hasScheme(path, SCHEME_S3);
   }
 
   /**
@@ -754,6 +757,7 @@ public class FileSystemUtil {
             .put(SCHEME_FILE, LOCAL)
             .put(SCHEME_HDFS, HDFS)
             .put(SCHEME_S3A, S3)
+            .put(SCHEME_S3, S3)
             .put(SCHEME_O3FS, OZONE)
             .put(SCHEME_OFS, OZONE)
             .put(SCHEME_ALLUXIO, ALLUXIO)

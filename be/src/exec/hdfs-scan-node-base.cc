@@ -325,6 +325,9 @@ Status HdfsScanPlanNode::ProcessScanRangesAndInitSharedState(FragmentState* stat
             case FbIcebergDataFileFormat::FbIcebergDataFileFormat_AVRO:
               file_desc->file_format = THdfsFileFormat::AVRO;
               break;
+            case FbIcebergDataFileFormat::FbIcebergDataFileFormat_HDF5:
+              file_desc->file_format = THdfsFileFormat::HDF5;
+              break;
             default:
               return Status(Substitute(
                   "Unknown Iceberg file format type: $0",
@@ -335,7 +338,7 @@ Status HdfsScanPlanNode::ProcessScanRangesAndInitSharedState(FragmentState* stat
         }
         RETURN_IF_ERROR(HdfsFsCache::instance()->GetConnection(
             native_file_path, &file_desc->fs, &fs_cache));
-        shared_state_.per_type_files_[partition_desc->file_format()].push_back(file_desc);
+        shared_state_.per_type_files_[file_desc->file_format].push_back(file_desc);
       } else {
         // File already processed
         file_desc = file_desc_it->second;
@@ -926,6 +929,9 @@ Status HdfsScanNodeBase::CreateAndOpenScannerHelper(HdfsPartitionDescriptor* par
         break;
       case FbIcebergDataFileFormat::FbIcebergDataFileFormat_AVRO:
         scanner->reset(new HdfsAvroScanner(this, runtime_state_));
+        break;
+      case FbIcebergDataFileFormat::FbIcebergDataFileFormat_HDF5:
+        scanner->reset(new HdfsHdf5Scanner(this, runtime_state_));
         break;
       default:
         return Status(Substitute(

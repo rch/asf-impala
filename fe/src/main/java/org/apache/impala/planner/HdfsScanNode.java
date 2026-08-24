@@ -1336,9 +1336,11 @@ public class HdfsScanNode extends ScanNode {
       final long partitionBytes = FileDescriptor.computeTotalFileLength(fileDescs);
       long partitionMaxScanRangeBytes = 0;
       boolean partitionMissingDiskIds = false;
-      totalBytesPerFs_.merge(fsType, partitionBytes, Long::sum);
-      totalFilesPerFs_.merge(fsType, (long) fileDescs.size(), Long::sum);
-      numPartitionsPerFs_.merge(fsType, 1L, Long::sum);
+      if (fsType != null) {
+        totalBytesPerFs_.merge(fsType, partitionBytes, Long::sum);
+        totalFilesPerFs_.merge(fsType, (long) fileDescs.size(), Long::sum);
+        numPartitionsPerFs_.merge(fsType, 1L, Long::sum);
+      }
 
       for (FileDescriptor fileDesc: fileDescs) {
         if (!analyzer.getQueryOptions().isAllow_erasure_coded_files() &&
@@ -1349,7 +1351,7 @@ public class HdfsScanNode extends ScanNode {
         }
 
         // Accumulate on the number of EC files and the total size of such files.
-        if (fileDesc.getIsEc()) {
+        if (fileDesc.getIsEc() && fsType != null) {
           totalFilesPerFsEC_.merge(fsType, 1L, Long::sum);
           totalBytesPerFsEC_.merge(fsType, fileDesc.getFileLength(), Long::sum);
         }
