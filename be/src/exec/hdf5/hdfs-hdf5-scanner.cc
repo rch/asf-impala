@@ -4,6 +4,7 @@
 
 #include "common/status.h"
 #include "exec/hdfs-scan-node-base.h"
+#include "exec/hdfs-scan-node.h"
 #include "runtime/runtime-state.h"
 #include "runtime/tuple-row.h"
 #include "runtime/tuple.h"
@@ -151,7 +152,21 @@ void HdfsHdf5Scanner::Close(RowBatch* row_batch) {
     env->DeleteGlobalRef(jscanner_);
     jscanner_ = nullptr;
   }
-  HdfsScanner::Close(row_batch);
+  if (row_batch != nullptr) {
+    row_batch->tuple_data_pool()->AcquireData(template_tuple_pool_.get(), false);
+    if (scan_node_->HasRowBatchQueue()) {
+      static_cast<HdfsScanNode*>(scan_node_)->AddMaterializedRowBatch(
+          std::unique_ptr<RowBatch>(row_batch));
+    }
+  } else if (template_tuple_pool_ != nullptr) {
+    template_tuple_pool_->FreeAll();
+  }
+  if (context_ != nullptr) context_->ReleaseCompletedResources(true);
+  if (stream_ != nullptr) {
+    scan_node_->RangeComplete(
+        THdfsFileFormat::HDF5, stream_->file_desc()->file_compression);
+  }
+  CloseInternal();
 }
 
 }  // namespace impala
