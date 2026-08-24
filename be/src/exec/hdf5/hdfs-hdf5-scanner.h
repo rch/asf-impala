@@ -21,6 +21,10 @@ class HdfsHdf5Scanner : public HdfsScanner {
   Status Open(ScannerContext* context) override;
   Status GetNextInternal(RowBatch* row_batch) override;
   void Close(RowBatch* row_batch) override;
+  Status InitNewRange() override { return Status::OK(); }
+  THdfsFileFormat::type file_format() const override {
+    return THdfsFileFormat::HDF5;
+  }
 
  private:
   static jclass scanner_cl_;
