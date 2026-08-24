@@ -90,24 +90,57 @@ public class TableLoader {
     LOG.info(annotation);
     Table table = null;
     try (ThreadNameAnnotator tna = new ThreadNameAnnotator(annotation)) {
-      // Construct a minimal HMS Table object with Kudu properties.
-      // The actual schema will be loaded from Kudu master by KuduTable.load().
       org.apache.hadoop.hive.metastore.api.Table msTbl =
           new org.apache.hadoop.hive.metastore.api.Table();
       msTbl.setDbName(db.getName());
       msTbl.setTableName(tblName);
-      msTbl.setTableType(TableType.MANAGED_TABLE.toString());
       msTbl.setOwner(System.getProperty("user.name", "impala"));
 
-      // Set Kudu properties
+      String jdbcUrl = System.getProperty("signals.catalog.jdbc_url",
+          "jdbc:postgresql://localhost:5455/signals_catalog");
       String kuduMasters = System.getProperty("signals.kudu.master_addresses",
           "127.0.0.1:7051");
-      String kuduTableName = "impala::" + db.getName() + "." + tblName;
+      String registeredType = null;
+      String viewOriginal = null;
+      String viewExpanded = null;
+      try (java.sql.Connection conn = java.sql.DriverManager.getConnection(jdbcUrl);
+           java.sql.PreparedStatement ps = conn.prepareStatement(
+               "SELECT table_type, parameters->>'view.original' AS view_original, "
+                   + "parameters->>'view.expanded' AS view_expanded "
+                   + "FROM catalog_tables WHERE db_name = ? AND table_name = ?")) {
+        ps.setString(1, db.getName());
+        ps.setString(2, tblName);
+        try (java.sql.ResultSet rs = ps.executeQuery()) {
+          if (rs.next()) {
+            registeredType = rs.getString("table_type");
+            viewOriginal = rs.getString("view_original");
+            viewExpanded = rs.getString("view_expanded");
+          }
+        }
+      } catch (java.sql.SQLException e) {
+        throw new TableLoadingException(
+            "HMS-free catalog_tables lookup failed for " + fullTblName, e);
+      }
+
       Map<String, String> params = new HashMap<>();
-      params.put(KuduTable.KEY_TABLE_NAME, kuduTableName);
-      params.put(KuduTable.KEY_MASTER_HOSTS, kuduMasters);
-      params.put(KuduTable.KEY_STORAGE_HANDLER, KuduTable.KUDU_STORAGE_HANDLER);
-      msTbl.setParameters(params);
+      if ("VIEW".equals(registeredType)) {
+        if (viewExpanded == null || viewExpanded.isEmpty()) {
+          throw new TableLoadingException(
+              "HMS-free view has no view.expanded: " + fullTblName);
+        }
+        msTbl.setTableType(TableType.VIRTUAL_VIEW.toString());
+        msTbl.setViewOriginalText(viewOriginal != null ? viewOriginal : viewExpanded);
+        msTbl.setViewExpandedText(viewExpanded);
+        msTbl.setParameters(params);
+      } else {
+        // Kudu (default): schema from the Kudu master.
+        msTbl.setTableType(TableType.MANAGED_TABLE.toString());
+        String kuduTableName = "impala::" + db.getName() + "." + tblName;
+        params.put(KuduTable.KEY_TABLE_NAME, kuduTableName);
+        params.put(KuduTable.KEY_MASTER_HOSTS, kuduMasters);
+        params.put(KuduTable.KEY_STORAGE_HANDLER, KuduTable.KUDU_STORAGE_HANDLER);
+        msTbl.setParameters(params);
+      }
 
       // Set storage descriptor (minimal, Kudu provides schema)
       org.apache.hadoop.hive.metastore.api.StorageDescriptor sd =

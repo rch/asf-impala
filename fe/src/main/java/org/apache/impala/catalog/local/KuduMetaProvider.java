@@ -175,13 +175,15 @@ public class KuduMetaProvider implements MetaProvider {
     try (Connection conn = getConnection();
          PreparedStatement ps = conn.prepareStatement(
              "SELECT table_name, table_type FROM catalog_tables " +
-             "WHERE db_name = ? AND table_type = 'KUDU' ORDER BY table_name")) {
+             "WHERE db_name = ? AND table_type IN ('KUDU', 'VIEW') " +
+             "ORDER BY table_name")) {
       ps.setString(1, dbName);
       try (ResultSet rs = ps.executeQuery()) {
         ImmutableList.Builder<TBriefTableMeta> ret = ImmutableList.builder();
         while (rs.next()) {
           TBriefTableMeta meta = new TBriefTableMeta(rs.getString("table_name"));
-          meta.setMsType("TABLE");
+          String typ = rs.getString("table_type");
+          meta.setMsType("VIEW".equals(typ) ? "VIEW" : "TABLE");
           ret.add(meta);
         }
         return ret.build();
@@ -196,8 +198,10 @@ public class KuduMetaProvider implements MetaProvider {
       throws TException {
     try (Connection conn = getConnection();
          PreparedStatement ps = conn.prepareStatement(
-             "SELECT table_type, parameters::text FROM catalog_tables " +
-             "WHERE db_name = ? AND table_name = ? AND table_type = 'KUDU'")) {
+             "SELECT table_type, parameters->>'view.original' AS view_original, " +
+             "parameters->>'view.expanded' AS view_expanded " +
+             "FROM catalog_tables WHERE db_name = ? AND table_name = ? " +
+             "AND table_type IN ('KUDU', 'VIEW')")) {
       ps.setString(1, dbName);
       ps.setString(2, tableName);
       try (ResultSet rs = ps.executeQuery()) {
@@ -205,25 +209,11 @@ public class KuduMetaProvider implements MetaProvider {
           throw new NoSuchObjectException(
               String.format("Table not found: %s.%s", dbName, tableName));
         }
-
-        // Construct an HMS-compatible Table object with Kudu properties.
-        // LocalKuduTable.loadFromKudu() will read the actual schema from
-        // Kudu master using these properties.
+        String tableType = rs.getString("table_type");
         Table msTable = new Table();
         msTable.setDbName(dbName);
         msTable.setTableName(tableName);
-        msTable.setTableType(TableType.MANAGED_TABLE.toString());
 
-        Map<String, String> params = new HashMap<>();
-        params.put(KuduTable.KEY_STORAGE_HANDLER, KuduTable.KUDU_STORAGE_HANDLER);
-        params.put(KuduTable.KEY_MASTER_HOSTS, kuduMasterAddresses_);
-        // Default Kudu table name convention: "impala::db.table"
-        String kuduTableName = "impala::" + dbName + "." + tableName;
-        params.put(KuduTable.KEY_TABLE_NAME, kuduTableName);
-        msTable.setParameters(params);
-
-        // Minimal StorageDescriptor — schema will be overwritten by
-        // LocalKuduTable from Kudu master.
         StorageDescriptor sd = new StorageDescriptor();
         sd.setCols(Collections.emptyList());
         sd.setInputFormat("");
@@ -235,10 +225,30 @@ public class KuduMetaProvider implements MetaProvider {
         sd.setSerdeInfo(serde);
         sd.setLocation("");
         msTable.setSd(sd);
-
         msTable.setPartitionKeys(Collections.emptyList());
 
-        // Hive-3+ Analyzer.ensureTableSupported() requires non-NONE access type.
+        if ("VIEW".equals(tableType)) {
+          msTable.setTableType(TableType.VIRTUAL_VIEW.toString());
+          String original = rs.getString("view_original");
+          String expanded = rs.getString("view_expanded");
+          if (expanded == null || expanded.isEmpty()) {
+            throw new TException("VIEW " + dbName + "." + tableName
+                + " has no view.expanded in catalog_tables");
+          }
+          msTable.setViewOriginalText(original != null ? original : expanded);
+          msTable.setViewExpandedText(expanded);
+          Map<String, String> params = new HashMap<>();
+          msTable.setParameters(params);
+        } else {
+          // Kudu: LocalKuduTable.loadFromKudu() reads schema from the master.
+          msTable.setTableType(TableType.MANAGED_TABLE.toString());
+          Map<String, String> params = new HashMap<>();
+          params.put(KuduTable.KEY_STORAGE_HANDLER, KuduTable.KUDU_STORAGE_HANDLER);
+          params.put(KuduTable.KEY_MASTER_HOSTS, kuduMasterAddresses_);
+          params.put(KuduTable.KEY_TABLE_NAME, "impala::" + dbName + "." + tableName);
+          msTable.setParameters(params);
+        }
+
         MetastoreShim.setTableAccessType(msTable, ACCESSTYPE_READWRITE);
 
         long loadingTime = System.currentTimeMillis();
@@ -396,6 +406,44 @@ public class KuduMetaProvider implements MetaProvider {
           kuduTableName, kuduMasterAddresses_);
       ps.setString(3, params);
       ps.executeUpdate();
+    }
+  }
+
+  /**
+   * Register an Impala view in the catalog registry (HMS-free CREATE VIEW).
+   * SQL text is stored as jsonb strings so JDBC handles quoting.
+   */
+  public void registerView(String dbName, String tableName,
+      String originalSql, String expandedSql) throws SQLException {
+    try (Connection conn = getConnection();
+         PreparedStatement ps = conn.prepareStatement(
+             "INSERT INTO catalog_tables (db_name, table_name, table_type, parameters) "
+                 + "VALUES (?, ?, 'VIEW', jsonb_build_object("
+                 + "'view.original', ?::text, 'view.expanded', ?::text)) "
+                 + "ON CONFLICT (db_name, table_name) DO UPDATE SET "
+                 + "table_type = EXCLUDED.table_type, parameters = EXCLUDED.parameters")) {
+      ps.setString(1, dbName);
+      ps.setString(2, tableName);
+      ps.setString(3, originalSql);
+      ps.setString(4, expandedSql);
+      ps.executeUpdate();
+    }
+  }
+
+  /**
+   * @return KUDU, ICEBERG, VIEW, or null if the name is not registered
+   */
+  public String getTableType(String dbName, String tableName) throws SQLException {
+    try (Connection conn = getConnection();
+         PreparedStatement ps = conn.prepareStatement(
+             "SELECT table_type FROM catalog_tables "
+                 + "WHERE db_name = ? AND table_name = ?")) {
+      ps.setString(1, dbName);
+      ps.setString(2, tableName);
+      try (ResultSet rs = ps.executeQuery()) {
+        if (!rs.next()) return null;
+        return rs.getString(1);
+      }
     }
   }
 

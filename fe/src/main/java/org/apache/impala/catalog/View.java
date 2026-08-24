@@ -90,8 +90,18 @@ public class View extends Table implements FeView {
       Table.LOADING_TABLES.incrementAndGet();
       clearColumns();
       msTable_ = msTbl;
-      // Load columns.
-      List<FieldSchema> fieldSchemas = client.getFields(db_.getName(), name_);
+      // Load columns. HMS-free catalogd passes a null client; use the
+      // StorageDescriptor seeded from catalog_tables.
+      List<FieldSchema> fieldSchemas;
+      if (client == null) {
+        if (msTbl.getSd() == null || msTbl.getSd().getCols() == null) {
+          throw new TableLoadingException(
+              "HMS-free view has no column list: " + name_);
+        }
+        fieldSchemas = msTbl.getSd().getCols();
+      } else {
+        fieldSchemas = client.getFields(db_.getName(), name_);
+      }
       for (int i = 0; i < fieldSchemas.size(); ++i) {
         FieldSchema s = fieldSchemas.get(i);
         Type type = parseColumnType(s);

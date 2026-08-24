@@ -2481,14 +2481,16 @@ public class CatalogServiceCatalog extends Catalog {
         dbs.put("default", defaultDb);
       }
 
-      // Kudu tables as IncompleteTable placeholders (schema loaded from Kudu on demand)
+      // Kudu tables and views as IncompleteTable placeholders
       try (PreparedStatement ps = conn.prepareStatement(
-              "SELECT db_name, table_name FROM catalog_tables "
-                  + "WHERE table_type = 'KUDU' ORDER BY db_name, table_name");
+              "SELECT db_name, table_name, table_type FROM catalog_tables "
+                  + "WHERE table_type IN ('KUDU', 'VIEW') "
+                  + "ORDER BY db_name, table_name");
            ResultSet rs = ps.executeQuery()) {
         while (rs.next()) {
           String dbName = rs.getString("db_name");
           String tableName = rs.getString("table_name");
+          String tableType = rs.getString("table_type");
           if (tableName != null) tableName = tableName.toLowerCase();
           Db db = dbs.get(dbName);
           if (db == null) {
@@ -2500,8 +2502,10 @@ public class CatalogServiceCatalog extends Catalog {
             LOG.info("HMS-free: skip blacklisted table: {}.{}", dbName, tableName);
             continue;
           }
+          TImpalaTableType impalaType = "VIEW".equals(tableType)
+              ? TImpalaTableType.VIEW : TImpalaTableType.TABLE;
           Table incompleteTbl = IncompleteTable.createUninitializedTable(
-              db, tableName, TImpalaTableType.TABLE, /*comment*/ null, /*eventId*/ -1L);
+              db, tableName, impalaType, /*comment*/ null, /*eventId*/ -1L);
           incompleteTbl.setCatalogVersion(incrementAndGetCatalogVersion());
           db.addTable(incompleteTbl);
           ++numTables;

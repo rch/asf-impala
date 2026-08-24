@@ -30,6 +30,7 @@ import org.apache.impala.common.ImpalaRuntimeException;
 
 import static org.apache.impala.analysis.Analyzer.ACCESSTYPE_READWRITE;
 import org.apache.impala.thrift.TCreateDbParams;
+import org.apache.impala.thrift.TCreateOrAlterViewParams;
 import org.apache.impala.thrift.TCreateTableParams;
 import org.apache.impala.thrift.TDdlExecResponse;
 import org.apache.impala.thrift.TDropDbParams;
@@ -175,6 +176,35 @@ public class SignalsDdlExecutor {
   }
 
   /**
+   * Persist CREATE VIEW in catalog_tables. No HMS, no physical storage.
+   */
+  public void createView(TCreateOrAlterViewParams params) throws ImpalaException {
+    String dbName = params.getView_name().getDb_name();
+    String tableName = params.getView_name().getTable_name();
+    String original = params.getOriginal_view_def();
+    String expanded = params.getExpanded_view_def();
+    if (expanded == null || expanded.isEmpty()) {
+      throw new ImpalaRuntimeException(
+          "HMS-free CREATE VIEW requires expanded_view_def for " + dbName + "." + tableName);
+    }
+    try {
+      if (params.if_not_exists) {
+        String existing = kuduMetaProvider_.getTableType(dbName, tableName);
+        if (existing != null) {
+          LOG.info("View '{}.{}' already exists as {} (IF NOT EXISTS)",
+              dbName, tableName, existing);
+          return;
+        }
+      }
+      kuduMetaProvider_.registerView(dbName, tableName, original, expanded);
+      LOG.info("Registered view '{}.{}' in catalog registry", dbName, tableName);
+    } catch (SQLException e) {
+      throw new ImpalaRuntimeException(
+          "Failed to register view in catalog registry: " + dbName + "." + tableName, e);
+    }
+  }
+
+  /**
    * Drop a table. Drops from Kudu (physical table) and unregisters from catalog registry.
    */
   public void dropTable(TDropTableOrViewParams params,
@@ -182,6 +212,27 @@ public class SignalsDdlExecutor {
     String dbName = params.getTable_name().getDb_name();
     String tableName = params.getTable_name().getTable_name();
     boolean ifExists = params.if_exists;
+
+    String registeredType = null;
+    try {
+      registeredType = kuduMetaProvider_.getTableType(dbName, tableName);
+    } catch (SQLException e) {
+      LOG.debug("catalog_tables lookup failed for {}.{}", dbName, tableName, e);
+    }
+    if ("VIEW".equals(registeredType) || "ICEBERG".equals(registeredType)) {
+      try {
+        kuduMetaProvider_.unregisterTable(dbName, tableName);
+        LOG.info("Unregistered {} '{}.{}' from catalog registry",
+            registeredType, dbName, tableName);
+      } catch (SQLException e) {
+        if (!ifExists) {
+          throw new ImpalaRuntimeException(
+              "Failed to unregister " + registeredType.toLowerCase()
+                  + " from catalog registry", e);
+        }
+      }
+      return;
+    }
 
     // Drop the physical table from Kudu
     String kuduMasters = System.getProperty("signals.kudu.master_addresses",

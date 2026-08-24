@@ -540,7 +540,19 @@ public class CatalogOpExecutor {
           response.getResult().setStatus(okStatus);
           addSummary(response, "Table has been created.");
           return response;
-        } else if (ddlType == TDdlType.DROP_TABLE) {
+        } else if (ddlType == TDdlType.CREATE_VIEW) {
+          TCreateOrAlterViewParams vp = ddlRequest.getCreate_view_params();
+          signalsDdlExecutor_.createView(vp);
+          Table newTbl = catalog_.addIncompleteTable(
+              vp.getView_name().getDb_name(), vp.getView_name().getTable_name(),
+              TImpalaTableType.VIEW, vp.getComment());
+          if (newTbl != null) {
+            addTableToCatalogUpdate(newTbl, wantMinimal, response.getResult());
+          }
+          response.getResult().setStatus(okStatus);
+          addSummary(response, "View has been created.");
+          return response;
+        } else if (ddlType == TDdlType.DROP_TABLE || ddlType == TDdlType.DROP_VIEW) {
           TDropTableOrViewParams dropParams =
               ddlRequest.getDrop_table_or_view_params();
           signalsDdlExecutor_.dropTable(dropParams, hmsFreeTimeline);
@@ -554,7 +566,9 @@ public class CatalogOpExecutor {
           }
           response.getResult().setVersion(catalog_.getCatalogVersion());
           response.getResult().setStatus(okStatus);
-          addSummary(response, "Table has been dropped.");
+          addSummary(response,
+              ddlType == TDdlType.DROP_VIEW ? "View has been dropped."
+                  : "Table has been dropped.");
           return response;
         }
         // Other DDL types fall through to standard (HMS-based) paths below
