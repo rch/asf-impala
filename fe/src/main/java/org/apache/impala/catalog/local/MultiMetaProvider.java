@@ -114,14 +114,19 @@ public class MultiMetaProvider implements MetaProvider {
     ImmutableList<TBriefTableMeta> combinedTableList = collectFromAllProviders(
         unchecked(provider -> provider.loadTableList(dbName))).stream().flatMap(
         Collection::stream).collect(ImmutableList.toImmutableList());
-    Optional<Entry<String, Integer>> firstDuplicate = combinedTableList.stream()
-        .map(tableMeta -> tableMeta.name)
-        .collect(Collectors.toMap(s -> s, s -> 1, Integer::sum)).entrySet().stream()
-        .filter(stringIntegerEntry -> stringIntegerEntry.getValue() > 1).findFirst();
-    if (firstDuplicate.isPresent()) {
-      throw new TException("Ambiguous table name: " + firstDuplicate.get().getKey());
+    // HMS-free: Kudu registry and Iceberg/Polaris can both advertise the same
+    // name (gpu_metrics_tier0). Fail-open: keep the first provider's row and
+    // log the collision so CREATE/SHOW of other tables is not blocked.
+    Map<String, TBriefTableMeta> unique = new HashMap<>();
+    for (TBriefTableMeta meta : combinedTableList) {
+      TBriefTableMeta prev = unique.putIfAbsent(meta.name, meta);
+      if (prev != null) {
+        org.slf4j.LoggerFactory.getLogger(MultiMetaProvider.class).warn(
+            "Duplicate table '{}.{}' across meta providers; keeping first",
+            dbName, meta.name);
+      }
     }
-    return combinedTableList;
+    return ImmutableList.copyOf(unique.values());
   }
 
   @Override

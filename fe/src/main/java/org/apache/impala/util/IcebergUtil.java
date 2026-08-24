@@ -781,6 +781,12 @@ public class IcebergUtil {
     switch (fbFileFormat){
       case org.apache.impala.fb.FbIcebergDataFileFormat.PARQUET:
           return org.apache.iceberg.FileFormat.PARQUET;
+      case org.apache.impala.fb.FbIcebergDataFileFormat.ORC:
+          return org.apache.iceberg.FileFormat.ORC;
+      case org.apache.impala.fb.FbIcebergDataFileFormat.AVRO:
+          return org.apache.iceberg.FileFormat.AVRO;
+      case org.apache.impala.fb.FbIcebergDataFileFormat.HDF5:
+          return org.apache.iceberg.FileFormat.HDF5;
       default:
           throw new ImpalaRuntimeException(String.format("Unexpected file format: %s",
               org.apache.impala.fb.FbIcebergDataFileFormat.name(fbFileFormat)));

@@ -109,6 +109,28 @@ public class SignalsDdlExecutor {
     String dbName = msTbl.getDbName();
     String tableName = msTbl.getTableName();
 
+    // HMS-free CREATE TABLE does not go through Hive's storage-handler rewrite.
+    // Seed Kudu keys so KuduTable.isSynchronizedTable() does not checkState-fail
+    // with a null IllegalStateException (2ms HMS-free DDL death).
+    if (params.getFile_format() == org.apache.impala.thrift.THdfsFileFormat.KUDU
+        || KuduTable.isKuduTable(msTbl)) {
+      if (msTbl.getParameters() == null) {
+        msTbl.setParameters(new java.util.HashMap<String, String>());
+      }
+      java.util.Map<String, String> p = msTbl.getParameters();
+      p.put(KuduTable.KEY_STORAGE_HANDLER, KuduTable.KUDU_STORAGE_HANDLER);
+      String masters = System.getProperty("signals.kudu.master_addresses",
+          "tinybox.dev.vista.zndx.org:7051");
+      if (p.get(KuduTable.KEY_MASTER_HOSTS) == null
+          || p.get(KuduTable.KEY_MASTER_HOSTS).isEmpty()) {
+        p.put(KuduTable.KEY_MASTER_HOSTS, masters);
+      }
+      if (p.get(KuduTable.KEY_TABLE_NAME) == null
+          || p.get(KuduTable.KEY_TABLE_NAME).isEmpty()) {
+        p.put(KuduTable.KEY_TABLE_NAME, "impala::" + dbName + "." + tableName);
+      }
+    }
+
     if (KuduTable.isKuduTable(msTbl)) {
       // Ensure Hive-3+ access type is RW before/after physical create so analysis
       // of subsequent SELECT/INSERT does not fail with "access type is: NONE".
