@@ -242,6 +242,12 @@ public class KuduTable extends Table implements FeKuduTable {
    */
   public static boolean isHMSIntegrationEnabled(String kuduMasters)
       throws ImpalaRuntimeException {
+    // HMS-free catalog: Kudu is not Hive-integrated. Skip the Java client RPC
+    // (it is the CREATE TABLE analysis path and currently fails GSSAPI on
+    // Java 21 / KUDU-2121). Default Kudu name is impala::<db>.<table>.
+    if (Boolean.getBoolean("signals.hms_free_mode")) {
+      return false;
+    }
     return getHiveMetastoreConfig(kuduMasters) != null;
   }
 

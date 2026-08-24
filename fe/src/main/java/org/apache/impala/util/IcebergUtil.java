@@ -143,8 +143,20 @@ public class IcebergUtil {
           .invoke(null);
       LOG.info("Registered Hdf5FormatModels (Iceberg FileFormat.HDF5)");
     } catch (Throwable t) {
-      throw new ExceptionInInitializerError(
-          "#SL.00000022.HDF5REG " + t.getClass().getName() + ": " + t.getMessage());
+      StringBuilder sb = new StringBuilder("#SL.00000022.HDF5REG");
+      Throwable root = t;
+      for (Throwable c = t; c != null; c = c.getCause()) {
+        sb.append(' ').append(c.getClass().getName()).append(':').append(c.getMessage());
+        root = c;
+      }
+      String rootMsg = String.valueOf(root.getMessage());
+      // iceberg-hdf5 ServiceLoader already registered the same model.
+      if (rootMsg.contains("is registered for format=HDF5")) {
+        LOG.info("Hdf5FormatModels already registered ({})", rootMsg);
+      } else {
+        LOG.error(sb.toString(), t);
+        throw new ExceptionInInitializerError(sb.toString());
+      }
     }
   }
 
