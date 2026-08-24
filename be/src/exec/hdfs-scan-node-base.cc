@@ -29,6 +29,7 @@
 #include "exec/text/hdfs-text-scanner.h"
 #include "exec/text/hdfs-plugin-text-scanner.h"
 #include "exec/json/hdfs-json-scanner.h"
+#include "exec/hdf5/hdfs-hdf5-scanner.h"
 
 
 #include <avro/errors.h>
@@ -759,6 +760,9 @@ Status HdfsScanNodeBase::IssueInitialScanRanges(RuntimeState* state) {
       case THdfsFileFormat::JSON:
         RETURN_IF_ERROR(HdfsJsonScanner::IssueInitialRanges(this, entry.second));
         break;
+      case THdfsFileFormat::HDF5:
+        RETURN_IF_ERROR(HdfsHdf5Scanner::IssueInitialRanges(this, entry.second));
+        break;
       default:
         DCHECK(false) << "Unexpected file type " << entry.first;
     }
@@ -966,6 +970,9 @@ Status HdfsScanNodeBase::CreateAndOpenScannerHelper(HdfsPartitionDescriptor* par
         } else {
           return Status("Scanning compressed Json file is not implemented yet.");
         }
+        break;
+      case THdfsFileFormat::HDF5:
+        scanner->reset(new HdfsHdf5Scanner(this, runtime_state_));
         break;
       default:
         return Status(

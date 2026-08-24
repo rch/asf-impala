@@ -84,6 +84,7 @@ enum THdfsFileFormat {
   JSON = 9
   JDBC = 10
   PAIMON = 11
+  HDF5 = 12
 }
 
 enum TVirtualColumnType {
@@ -120,6 +121,7 @@ enum TIcebergFileFormat {
   PARQUET = 0
   ORC = 1
   AVRO = 2
+  HDF5 = 3
 }
 
 // Iceberg table catalog type identified by table property 'iceberg.catalog'

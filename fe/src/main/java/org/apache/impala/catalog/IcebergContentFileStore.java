@@ -181,6 +181,7 @@ public class IcebergContentFileStore {
   private boolean hasAvro_ = false;
   private boolean hasOrc_ = false;
   private boolean hasParquet_ = false;
+  private boolean hasHdf5_ = false;
 
   public IcebergContentFileStore() {}
 
@@ -335,6 +336,7 @@ public class IcebergContentFileStore {
   public boolean hasAvro() { return hasAvro_; }
   public boolean hasOrc() { return hasOrc_; }
   public boolean hasParquet() { return hasParquet_; }
+  public boolean hasHdf5() { return hasHdf5_; }
 
   private void updateFileFormats(FbIcebergMetadata icebergMetadata) {
     Preconditions.checkNotNull(icebergMetadata);
@@ -346,6 +348,8 @@ public class IcebergContentFileStore {
       hasOrc_ = true;
     } else if (fileFormat == FbIcebergDataFileFormat.AVRO) {
       hasAvro_ = true;
+    } else if (fileFormat == FbIcebergDataFileFormat.HDF5) {
+      hasHdf5_ = true;
     }
   }
 

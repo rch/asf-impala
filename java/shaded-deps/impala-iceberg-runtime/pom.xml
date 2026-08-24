@@ -101,6 +101,11 @@ under the License.
       <artifactId>httpcore5</artifactId>
       <version>5.4</version>
     </dependency>
+    <dependency>
+      <groupId>org.zndx.semantics</groupId>
+      <artifactId>iceberg-hdf5</artifactId>
+      <version>0.1.0-SNAPSHOT</version>
+    </dependency>
   </dependencies>
 
   <build>
@@ -122,6 +127,8 @@ under the License.
                   <include>org.apache.iceberg:*</include>
                   <include>org.apache.avro:*</include>
                   <include>org.apache.parquet:*</include>
+                  <include>org.zndx.semantics:*</include>
+                  <include>io.jhdf:*</include>
                   </includes>
               </artifactSet>
               <relocations>

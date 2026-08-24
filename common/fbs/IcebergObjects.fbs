@@ -20,7 +20,8 @@ namespace org.apache.impala.fb;
 enum FbIcebergDataFileFormat: byte {
   PARQUET,
   ORC,
-  AVRO
+  AVRO,
+  HDF5
 }
 
 enum FbIcebergTransformType : byte {

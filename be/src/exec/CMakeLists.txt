@@ -26,6 +26,7 @@ add_subdirectory(sequence)
 add_subdirectory(text)
 add_subdirectory(iceberg-metadata)
 add_subdirectory(paimon)
+add_subdirectory(hdf5)
 
 # where to put generated libraries
 set(LIBRARY_OUTPUT_PATH "${BUILD_OUTPUT_ROOT_DIRECTORY}/exec")

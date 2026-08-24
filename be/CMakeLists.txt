@@ -549,6 +549,7 @@ set (IMPALA_LIBS
   ExecText
   ExecIcebergMetadata
   ExecPaimon
+  ExecHdf5
   Exprs
   ExprsIr
   ExprsGeoIr

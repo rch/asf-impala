@@ -88,7 +88,11 @@ public enum HdfsFileFormat {
       "org.apache.hadoop.hive.jdbc.JdbcSerDe", false, false, true),
   PAIMON("org.apache.paimon.hive.mapred.PaimonInputFormat",
       "org.apache.paimon.hive.mapred.PaimonOutputFormat",
-      "org.apache.paimon.hive.PaimonSerDe", true, false, true);
+      "org.apache.paimon.hive.PaimonSerDe", true, false, true),
+  // Iceberg data files in HDF5 (FormatModel); not a Hive SerDe.
+  HDF5("org.zndx.semantics.iceberg.Hdf5InputFormat",
+      "org.zndx.semantics.iceberg.Hdf5OutputFormat",
+      "org.zndx.semantics.iceberg.Hdf5SerDe", true, true, true);
 
   private final String inputFormat_;
   private final String outputFormat_;
@@ -146,6 +150,7 @@ public enum HdfsFileFormat {
           .put(HUDI_PARQUET.inputFormat(), HUDI_PARQUET)
           .put(ICEBERG.inputFormat(), ICEBERG)
           .put(PAIMON.inputFormat(), PAIMON)
+          .put(HDF5.inputFormat(), HDF5)
           .build();
 
   /**
@@ -201,6 +206,7 @@ public enum HdfsFileFormat {
       case JSON: return HdfsFileFormat.JSON;
       case JDBC: return HdfsFileFormat.JDBC;
       case PAIMON: return HdfsFileFormat.PAIMON;
+      case HDF5: return HdfsFileFormat.HDF5;
       default:
         throw new RuntimeException("Unknown THdfsFileFormat: "
             + thriftFormat + " - should never happen!");
@@ -221,6 +227,7 @@ public enum HdfsFileFormat {
       case JSON: return THdfsFileFormat.JSON;
       case JDBC: return THdfsFileFormat.JDBC;
       case PAIMON: return THdfsFileFormat.PAIMON;
+      case HDF5: return THdfsFileFormat.HDF5;
       default:
         throw new RuntimeException("Unknown HdfsFormat: "
             + this + " - should never happen!");
@@ -249,6 +256,7 @@ public enum HdfsFileFormat {
       case JSON: return "JSONFILE";
       case JDBC: return "JDBC";
       case PAIMON: return "PAIMON";
+      case HDF5: return "HDF5";
 
       default:
         throw new RuntimeException("Unknown HdfsFormat: "
@@ -271,6 +279,7 @@ public enum HdfsFileFormat {
       case HUDI_PARQUET:
       case ORC:
       case ICEBERG:
+      case HDF5:
         return true;
       case KUDU:
         return false;

@@ -32,6 +32,7 @@
 #include "exec/iceberg-metadata/iceberg-metadata-scanner.h"
 #include "exec/iceberg-metadata/iceberg-row-reader.h"
 #include "exec/paimon/paimon-jni-scanner.h"
+#include "exec/hdf5/hdfs-hdf5-scanner.h"
 #include "exprs/hive-udf-call.h"
 #include "exprs/timezone_db.h"
 #include "gen-cpp/ImpalaService.h"
@@ -70,6 +71,7 @@ int ImpaladMain(int argc, char** argv) {
   ABORT_IF_ERROR(IcebergMetadataScanner::InitJNI());
   ABORT_IF_ERROR(IcebergRowReader::InitJNI());
   ABORT_IF_ERROR(PaimonJniScanner::InitJNI());
+  ABORT_IF_ERROR(HdfsHdf5Scanner::InitJNI());
   ABORT_IF_ERROR(HiveUdfCall::InitEnv());
   ABORT_IF_ERROR(JniCatalogCacheUpdateIterator::InitJNI());
   InitFeSupport();

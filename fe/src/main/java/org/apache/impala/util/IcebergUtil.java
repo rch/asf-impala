@@ -136,6 +136,18 @@ public class IcebergUtil {
 
   private static final Logger LOG = LoggerFactory.getLogger(IcebergUtil.class);
 
+  static {
+    try {
+      Class.forName("org.zndx.semantics.iceberg.Hdf5FormatModels")
+          .getMethod("register")
+          .invoke(null);
+      LOG.info("Registered Hdf5FormatModels (Iceberg FileFormat.HDF5)");
+    } catch (Throwable t) {
+      throw new ExceptionInInitializerError(
+          "#SL.00000022.HDF5REG " + t.getClass().getName() + ": " + t.getMessage());
+    }
+  }
+
   public static final String ICEBERG_REST_URI = "iceberg_rest_uri";
   public static final String ICEBERG_REST_USER_ID = "iceberg_rest_user_id";
   public static final String ICEBERG_REST_USER_SECRET = "iceberg_rest_user_secret";
@@ -429,6 +441,8 @@ public class IcebergUtil {
       return TIcebergFileFormat.ORC;
     } else if ("AVRO".equalsIgnoreCase(format)) {
       return TIcebergFileFormat.AVRO;
+    } else if ("HDF5".equalsIgnoreCase(format) || "H5".equalsIgnoreCase(format)) {
+      return TIcebergFileFormat.HDF5;
     }
     return null;
   }
@@ -611,6 +625,8 @@ public class IcebergUtil {
         return THdfsFileFormat.ORC;
       case AVRO:
         return THdfsFileFormat.AVRO;
+      case HDF5:
+        return THdfsFileFormat.HDF5;
       case PARQUET:
       default:
         return THdfsFileFormat.PARQUET;
@@ -1167,6 +1183,7 @@ public class IcebergUtil {
     if (cf.format() == FileFormat.PARQUET) fileFormat = FbIcebergDataFileFormat.PARQUET;
     else if (cf.format() == FileFormat.ORC) fileFormat = FbIcebergDataFileFormat.ORC;
     else if (cf.format() == FileFormat.AVRO) fileFormat = FbIcebergDataFileFormat.AVRO;
+    else if (cf.format() == FileFormat.HDF5) fileFormat = FbIcebergDataFileFormat.HDF5;
     if (fileFormat != -1) {
       FbIcebergMetadata.addFileFormat(fbb, fileFormat);
     }

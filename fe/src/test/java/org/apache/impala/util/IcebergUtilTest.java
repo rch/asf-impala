@@ -175,6 +175,8 @@ public class IcebergUtilTest {
     }
     assertEquals(TIcebergFileFormat.ORC, getIcebergFileFormat("ORC"));
     assertEquals(TIcebergFileFormat.PARQUET, getIcebergFileFormat("PARQUET"));
+    assertEquals(TIcebergFileFormat.HDF5, getIcebergFileFormat("HDF5"));
+    assertEquals(THdfsFileFormat.HDF5, toTHdfsFileFormat(TIcebergFileFormat.HDF5));
     assertNull(getIcebergFileFormat("unknown"));
   }
 
