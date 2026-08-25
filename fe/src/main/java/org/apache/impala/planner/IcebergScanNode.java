@@ -25,6 +25,10 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SchemaParser;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.ExpressionParser;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.impala.analysis.Analyzer;
 import org.apache.impala.analysis.Expr;
 import org.apache.impala.analysis.MultiAggregateInfo;
@@ -86,6 +90,12 @@ public class IcebergScanNode extends HdfsScanNode {
   // responsible for reading the delete files of the corresponding table.
   private final PlanNodeId deleteFileScanNodeId;
 
+  // Iceberg predicates the planner pushed for this scan. Parquet/ORC scanners
+  // re-derive these from Impala conjuncts in the BE; the HDF5 FormatModel runs
+  // in the FE JVM and needs them as Iceberg expressions.
+  private List<Expression> hdf5PushdownExprs_ = new ArrayList<>();
+  private final FeIcebergTable feIcebergTable_;
+
   public IcebergScanNode(PlanNodeId id, TableRef tblRef, List<Expr> conjuncts,
       MultiAggregateInfo aggInfo, List<IcebergFileDescriptor> fileDescs,
       int numPartitions,
@@ -122,6 +132,12 @@ public class IcebergScanNode extends HdfsScanNode {
     snapshotId_ = snapshotId;
     this.skippedConjuncts_ = skippedConjuncts;
     this.deleteFileScanNodeId = deleteId;
+    this.feIcebergTable_ = (FeIcebergTable) tblRef.getTable();
+  }
+
+  /** Iceberg predicates pushed to this scan (see hdf5PushdownExprs_). */
+  public void setHdf5PushdownExprs(List<Expression> exprs) {
+    hdf5PushdownExprs_ = exprs == null ? new ArrayList<>() : new ArrayList<>(exprs);
   }
 
   /**
@@ -230,6 +246,20 @@ public class IcebergScanNode extends HdfsScanNode {
     Preconditions.checkNotNull(msg.hdfs_scan_node);
     if (deleteFileScanNodeId != null) {
       msg.hdfs_scan_node.setDeleteFileScanNodeId(deleteFileScanNodeId.asInt());
+    }
+    // HDF5 data files are read by IcebergHdf5Scanner (FE JVM via JNI). It
+    // needs the table schema to be table-agnostic and the pushed predicates to
+    // materialise only matching rows. Both cross as Iceberg JSON.
+    if (fileFormats_.contains(HdfsFileFormat.HDF5)) {
+      msg.hdfs_scan_node.setHdf5_schema_json(
+          SchemaParser.toJson(feIcebergTable_.getIcebergSchema()));
+      if (!hdf5PushdownExprs_.isEmpty()) {
+        Expression all = hdf5PushdownExprs_.get(0);
+        for (int i = 1; i < hdf5PushdownExprs_.size(); i++) {
+          all = Expressions.and(all, hdf5PushdownExprs_.get(i));
+        }
+        msg.hdfs_scan_node.setHdf5_filter_json(ExpressionParser.toJson(all));
+      }
     }
   }
 

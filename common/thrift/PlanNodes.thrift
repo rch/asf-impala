@@ -370,6 +370,13 @@ struct THdfsScanNode {
   // when new files are being added to a table. For tuple caching, this can improve the
   // cache hits by avoiding unnecessary disruption to the runtime keys.
   16: optional bool schedule_scanranges_oldest_to_newest
+
+  // Iceberg HDF5 data files are read by a Java FormatModel (IcebergHdf5Scanner)
+  // rather than a C++ scanner. The BE hands it the table's Iceberg schema and
+  // the conjunction of the predicates the planner pushed to Iceberg, both as
+  // JSON, so the reader can materialise only the rows the query needs.
+  17: optional string hdf5_schema_json
+  18: optional string hdf5_filter_json
 }
 
 struct TDataSourceScanNode {

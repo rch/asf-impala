@@ -469,6 +469,10 @@ HdfsScanNodeBase::HdfsScanNodeBase(ObjectPool* pool, const HdfsScanPlanNode& pno
     skip_header_line_count_(hdfs_scan_node.__isset.skip_header_line_count ?
             hdfs_scan_node.skip_header_line_count :
             0),
+    hdf5_schema_json_(hdfs_scan_node.__isset.hdf5_schema_json ?
+            hdfs_scan_node.hdf5_schema_json : ""),
+    hdf5_filter_json_(hdfs_scan_node.__isset.hdf5_filter_json ?
+            hdfs_scan_node.hdf5_filter_json : ""),
     tuple_id_(pnode.tuple_id_),
     count_star_slot_offset_(hdfs_scan_node.__isset.count_star_slot_offset ?
             hdfs_scan_node.count_star_slot_offset :

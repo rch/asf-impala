@@ -466,6 +466,11 @@ class HdfsScanNodeBase : public ScanNode {
   const HdfsTableDescriptor* hdfs_table() const { return hdfs_table_; }
   const AvroSchemaElement& avro_schema() const { return avro_schema_; }
   int skip_header_line_count() const { return skip_header_line_count_; }
+
+  /// Iceberg HDF5 files are read by the Java FormatModel; these carry the
+  /// table schema and the planner's pushed predicates to it (JSON, may be "").
+  const std::string& hdf5_schema_json() const { return hdf5_schema_json_; }
+  const std::string& hdf5_filter_json() const { return hdf5_filter_json_; }
   io::RequestContext* reader_context() const { return reader_context_.get(); }
   bool optimize_count_star() const { return count_star_slot_offset_ != -1; }
   int count_star_slot_offset() const { return count_star_slot_offset_; }
@@ -684,6 +689,10 @@ class HdfsScanNodeBase : public ScanNode {
   // Number of header lines to skip at the beginning of each file of this table. Only set
   // to values > 0 for hdfs text files.
   const int skip_header_line_count_;
+
+  /// See hdf5_schema_json() / hdf5_filter_json().
+  const std::string hdf5_schema_json_;
+  const std::string hdf5_filter_json_;
 
   /// Tuple id of the tuple descriptor to be used.
   const int tuple_id_;

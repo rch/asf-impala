@@ -280,11 +280,12 @@ public class IcebergScanPlanner {
       Preconditions.checkState(!tblRef_.optimizeCountStarForIcebergV2());
       // If there are no delete files we can just create a single SCAN node.
       Preconditions.checkState(dataFilesWithDeletes_.isEmpty());
-      PlanNode ret = new IcebergScanNode(ctx_.getNextNodeId(), tblRef_, conjuncts_,
-          aggInfo_, dataFilesWithoutDeletes_,
+      IcebergScanNode ret = new IcebergScanNode(ctx_.getNextNodeId(), tblRef_,
+          conjuncts_, aggInfo_, dataFilesWithoutDeletes_,
           getIceTable().getContentFileStore().getNumPartitions(),
           nonIdentityConjuncts_,
           getSkippedConjuncts(), snapshotId_, isPartitionKeyScan);
+      ret.setHdf5PushdownExprs(pushedIcebergExprs());
       ret.init(analyzer_);
       return ret;
     }
@@ -315,6 +316,7 @@ public class IcebergScanPlanner {
         ctx_.getNextNodeId(), tblRef_, conjuncts_, aggInfo_, dataFilesWithoutDeletes_,
         getIceTable().getContentFileStore().getNumPartitions(),
         nonIdentityConjuncts_, getSkippedConjuncts(), snapshotId_, isPartitionKeyScan);
+    dataScanNode.setHdf5PushdownExprs(pushedIcebergExprs());
     dataScanNode.init(analyzer_);
     List<Expr> outputExprs = tblRef_.getDesc().getSlots().stream().map(
         SlotRef::new).collect(Collectors.toList());
@@ -398,6 +400,7 @@ public class IcebergScanPlanner {
         getIceTable().getContentFileStore().getNumPartitions(),
         nonIdentityConjuncts_, getSkippedConjuncts(), deleteScanNodeId, snapshotId_,
         false /*isPartitionKeyScan*/);
+    dataScanNode.setHdf5PushdownExprs(pushedIcebergExprs());
     dataScanNode.init(analyzer_);
     IcebergScanNode deleteScanNode = new IcebergScanNode(
         deleteScanNodeId,
@@ -613,6 +616,7 @@ public class IcebergScanPlanner {
           getIceTable().getContentFileStore().getNumPartitions(),
           nonIdentityConjuncts_, getSkippedConjuncts(), snapshotId_,
           false /*isPartitionKeyScan*/);
+      dataScanNode.setHdf5PushdownExprs(pushedIcebergExprs());
       addAllSlotsForEqualityDeletes(tblRef_);
       dataScanNode.init(analyzer_);
 
@@ -818,6 +822,11 @@ public class IcebergScanPlanner {
     LOG.debug("Iceberg predicate pushdown subsetting took {} ms",
         (System.currentTimeMillis() - startTime));
     return true;
+  }
+
+  /** Every Impala conjunct that translated to an Iceberg expression. */
+  private List<Expression> pushedIcebergExprs() {
+    return new ArrayList<>(impalaIcebergPredicateMapping_.keySet());
   }
 
   private List<Expr> getSkippedConjuncts() {

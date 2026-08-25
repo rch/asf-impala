@@ -31,8 +31,10 @@ Status HdfsHdf5Scanner::InitJNI() {
   if (env == nullptr) return Status("Failed to get/create JVM");
   RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(
       env, "org/apache/impala/util/IcebergHdf5Scanner", &scanner_cl_));
-  RETURN_IF_ERROR(JniUtil::GetMethodID(
-      env, scanner_cl_, "<init>", "(Ljava/lang/String;)V", &ctor_));
+  // (path, iceberg schema JSON, iceberg filter JSON). The schema makes the
+  // reader table-agnostic; the filter lets it materialise only matching rows.
+  RETURN_IF_ERROR(JniUtil::GetMethodID(env, scanner_cl_, "<init>",
+      "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V", &ctor_));
   RETURN_IF_ERROR(JniUtil::GetMethodID(
       env, scanner_cl_, "GetNext", "()[Ljava/lang/Object;", &get_next_));
   RETURN_IF_ERROR(JniUtil::GetMethodID(env, scanner_cl_, "Close", "()V", &close_));
@@ -57,8 +59,14 @@ Status HdfsHdf5Scanner::Open(ScannerContext* context) {
   }
   jstring path = env->NewStringUTF(stream_->filename());
   RETURN_ERROR_IF_EXC(env);
-  jobject local = env->NewObject(scanner_cl_, ctor_, path);
+  jstring schema_json = env->NewStringUTF(scan_node_->hdf5_schema_json().c_str());
+  RETURN_ERROR_IF_EXC(env);
+  jstring filter_json = env->NewStringUTF(scan_node_->hdf5_filter_json().c_str());
+  RETURN_ERROR_IF_EXC(env);
+  jobject local = env->NewObject(scanner_cl_, ctor_, path, schema_json, filter_json);
   env->DeleteLocalRef(path);
+  env->DeleteLocalRef(schema_json);
+  env->DeleteLocalRef(filter_json);
   RETURN_ERROR_IF_EXC(env);
   RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, local, &jscanner_));
   env->DeleteLocalRef(local);
@@ -129,6 +137,31 @@ Status HdfsHdf5Scanner::GetNextInternal(RowBatch* row_batch) {
             *reinterpret_cast<double*>(slot) = env->CallDoubleMethod(
                 cell, env->GetMethodID(number_cl, "doubleValue", "()D"));
             break;
+          case TYPE_DECIMAL: {
+            // The Java side hands DECIMAL cells over as their unscaled integer
+            // at the column's scale (see IcebergHdf5Scanner.GetNext), which is
+            // exactly Impala's in-memory DECIMAL representation. Width follows
+            // precision: 4 bytes to p=9, 8 to p=18, 16 to p=38.
+            const int64_t unscaled = env->CallLongMethod(
+                cell, env->GetMethodID(number_cl, "longValue", "()J"));
+            switch (sd->type().GetByteSize()) {
+              case 4:
+                *reinterpret_cast<int32_t*>(slot) = static_cast<int32_t>(unscaled);
+                break;
+              case 8:
+                *reinterpret_cast<int64_t*>(slot) = unscaled;
+                break;
+              case 16:
+                *reinterpret_cast<__int128_t*>(slot) = unscaled;
+                break;
+              default:
+                env->DeleteLocalRef(number_cl);
+                env->DeleteLocalRef(cell);
+                env->DeleteLocalRef(jrow);
+                return Status("#SL.00000023.HDF5SCAN unsupported DECIMAL width");
+            }
+            break;
+          }
           default:
             env->DeleteLocalRef(number_cl);
             env->DeleteLocalRef(cell);
