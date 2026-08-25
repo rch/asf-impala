@@ -674,7 +674,7 @@ public class IcebergUtil {
       List<Expression> predicates,
       TimeTravelSpec timeTravelSpec,
       MetricsReporter metricsReporter) throws TableLoadingException {
-    if (table.snapshotId() == -1) return CloseableIterable.empty();
+    if (table.snapshotId() <= 0) return CloseableIterable.empty(); // no snapshot yet
 
     TableScan scan = createScanAsOf(table, timeTravelSpec);
     for (Expression predicate : predicates) {
@@ -739,7 +739,7 @@ public class IcebergUtil {
   public static GroupedContentFiles getIcebergFilesFromSnapshot(
       FeIcebergTable table, List<Expression> predicates, long snapshotId)
       throws TableLoadingException {
-    if (table.snapshotId() == -1) {
+    if (table.snapshotId() <= 0 || snapshotId <= 0) { // no snapshot yet
       return new GroupedContentFiles(CloseableIterable.empty());
     }
     TableScan scan = newScan(table);

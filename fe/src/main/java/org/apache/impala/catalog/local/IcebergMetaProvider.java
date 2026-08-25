@@ -549,7 +549,8 @@ public class IcebergMetaProvider implements MetaProvider {
     TPartialTableInfo ret = new TPartialTableInfo();
     TIcebergTable iceTable = new TIcebergTable();
     if (apiTable.currentSnapshot() != null) {
-      iceTable.setCatalog_snapshot_id(apiTable.currentSnapshot().snapshotId());
+      iceTable.setCatalog_snapshot_id(
+          apiTable.currentSnapshot() != null ? apiTable.currentSnapshot().snapshotId() : -1L);
     }
     iceTable.setDefault_partition_spec_id(apiTable.spec().specId());
     ListMap<TNetworkAddress> hostIndex = new ListMap<>();

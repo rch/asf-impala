@@ -151,7 +151,12 @@ public class LocalIcebergTable extends LocalTable implements FeIcebergTable {
         getHostIndex());
     if (fileStore_.hasAvro()) localFsTable_.setAvroSchema(msTable);
     icebergApiTable_ = icebergApiTable;
-    catalogSnapshotId_ = tableInfo.getIceberg_table().getCatalog_snapshot_id();
+    // A table created but never appended has no snapshot. Thrift's unset
+    // default is 0, which is not a snapshot id either (Iceberg ids are
+    // positive); FeIcebergTable's convention for "none" is -1.
+    catalogSnapshotId_ = tableInfo.getIceberg_table().isSetCatalog_snapshot_id()
+        ? tableInfo.getIceberg_table().getCatalog_snapshot_id() : -1L;
+    if (catalogSnapshotId_ == 0L) catalogSnapshotId_ = -1L;
     partitionSpecs_ = Utils.loadPartitionSpecByIceberg(this);
     defaultPartitionSpecId_ = tableInfo.getIceberg_table().getDefault_partition_spec_id();
     icebergFileFormat_ = IcebergUtil.getIcebergFileFormat(msTable);
